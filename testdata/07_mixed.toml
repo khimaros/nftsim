@@ -1,0 +1,142 @@
+# Mixed protocol real-world scenarios
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+pre_nft_commands = []
+post_nft_commands = []
+
+# Test: Web browsing scenario (DNS + HTTPS)
+[[tests]]
+name = "Web Browsing: DNS Query"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", udp = { source_port = 54321, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "Web Browsing: DNS Response"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.100", udp = { source_port = 53, dest_port = 54321 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Web Browsing: HTTPS Connection"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Ping while downloading
+[[tests]]
+name = "Concurrent ICMP During Active TCP"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Multiple concurrent connections from same host
+[[tests]]
+name = "Multiple TCP Connections Same Host"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "1.1.1.1", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 60001, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Different hosts same destination
+[[tests]]
+name = "Multiple Hosts Same Destination"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "1.1.1.1", tcp = { source_port = 55000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.20", dest_ip = "1.1.1.1", tcp = { source_port = 55000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Blocked protocols still blocked
+[[tests]]
+name = "Mixed: SMTP Blocked Despite Other Traffic"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50000, dest_port = 25, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: UDP non-DNS blocked
+[[tests]]
+name = "Mixed: Non-DNS UDP Blocked"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", udp = { source_port = 50000, dest_port = 9999 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: Protocol switching - same 5-tuple different protocol
+[[tests]]
+name = "Protocol Mix - TCP and UDP Same Ports"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.150", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.150", dest_ip = "8.8.8.8", udp = { source_port = 45000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Rapid protocol changes
+[[tests]]
+name = "Rapid Protocol Transitions"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.200", dest_ip = "1.1.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.200", dest_ip = "1.1.1.1", tcp = { source_port = 50100, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.200", dest_ip = "8.8.4.4", udp = { source_port = 50101, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: All three protocols concurrently
+[[tests]]
+name = "All Protocols Concurrent"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "8.8.8.8", tcp = { source_port = 30001, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.11", dest_ip = "8.8.4.4", udp = { source_port = 30002, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.12", dest_ip = "1.1.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.13", dest_ip = "1.1.1.1", tcp = { source_port = 30004, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Reverse direction mixed protocols
+[[tests]]
+name = "Reverse Mixed Protocols (Established Replies)"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.250", dest_ip = "8.8.8.8", tcp = { source_port = 55000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.250", tcp = { source_port = 80, dest_port = 55000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.250", dest_ip = "8.8.4.4", udp = { source_port = 55001, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.4.4", dest_ip = "192.168.1.250", udp = { source_port = 53, dest_port = 55001 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]

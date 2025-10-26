@@ -1,0 +1,60 @@
+table inet filter {
+    # Define sets for testing
+    set blocked_ips {
+        type ipv4_addr
+        elements = { 1.2.3.4, 5.6.7.8, 9.10.11.12 }
+    }
+    
+    set allowed_ports {
+        type inet_service
+        elements = { 80, 443, 8080, 8443 }
+    }
+    
+    set dmz_servers {
+        type ipv4_addr
+        flags interval
+        elements = { 10.99.0.10-10.99.0.20 }
+    }
+    
+    # Define a map for port forwarding
+    map dnat_map {
+        type inet_service : ipv4_addr
+        elements = { 8080 : 192.168.1.100, 8443 : 192.168.1.101 }
+    }
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Block traffic from blacklisted IPs
+        ip saddr @blocked_ips drop
+        
+        # Allow established/related
+        ct state established,related accept
+        
+        # Allow outbound to allowed ports only
+        iifname "eth0" oifname "eth1" tcp dport @allowed_ports accept
+        
+        # Allow access to DMZ servers
+        iifname "eth0" oifname "eth1" ip daddr @dmz_servers accept
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        # Allow loopback
+        iif lo accept
+        
+        # Block blacklisted IPs
+        ip saddr @blocked_ips drop
+        
+        # Allow established/related
+        ct state established,related accept
+        
+        # Allow SSH from internal
+        iifname "eth0" tcp dport 22 accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

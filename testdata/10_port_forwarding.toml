@@ -1,0 +1,106 @@
+# Test suite 10: Port Forwarding (DNAT)
+#
+# Tests various port forwarding scenarios using DNAT
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "203.0.113.10/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "203.0.113.1" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+# Test 1: HTTP port forwarding 80 -> 8080
+[[tests]]
+name = "Port Forward - HTTP 80 to 8080"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "203.0.113.10", tcp = { source_port = 55000, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.2.3.4", tcp = { source_port = 8080, dest_port = 55000, flags = ["SYN", "ACK"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" }
+]
+
+# Test 2: HTTPS port forwarding 443 -> 8443
+[[tests]]
+name = "Port Forward - HTTPS 443 to 8443"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "5.6.7.8", dest_ip = "203.0.113.10", tcp = { source_port = 60000, dest_port = 443, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+# Test 3: SSH port forwarding 2222 -> 22
+[[tests]]
+name = "Port Forward - SSH 2222 to 22"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "9.10.11.12", dest_ip = "203.0.113.10", tcp = { source_port = 45000, dest_port = 2222, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.50" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+# Test 4: UDP DNS forwarding
+[[tests]]
+name = "Port Forward - DNS UDP 53 to 53"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "13.14.15.16", dest_ip = "203.0.113.10", udp = { source_port = 40000, dest_port = 53 } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.200" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+# Test 5: Port range forwarding
+[[tests]]
+name = "Port Forward - Range 3000-3010"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "17.18.19.20", dest_ip = "203.0.113.10", tcp = { source_port = 50000, dest_port = 3005, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.150" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+# Test 6: Multiple concurrent port forwards
+[[tests]]
+name = "Multiple Concurrent Port Forwards"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "25.26.27.28", dest_ip = "203.0.113.10", tcp = { source_port = 51000, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "29.30.31.32", dest_ip = "203.0.113.10", tcp = { source_port = 52000, dest_port = 443, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+# Test 7: Outbound traffic from internal network (should be masqueraded)
+[[tests]]
+name = "Outbound from Internal - Masqueraded"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+]

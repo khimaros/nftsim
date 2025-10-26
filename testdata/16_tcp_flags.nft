@@ -1,0 +1,43 @@
+table inet filter {
+    # TCP flags edge case testing
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Allow established/related
+        ct state established,related accept
+        
+        # Allow new SYN connections outbound
+        iifname "eth0" oifname "eth1" tcp flags & (fin|syn|rst|ack) == syn accept
+        
+        # Block invalid flag combinations
+        tcp flags & (fin|syn) == fin|syn drop
+        tcp flags & (syn|rst) == syn|rst drop
+        
+        # Block NULL scan (no flags)
+        tcp flags == 0x0 drop
+        
+        # Block XMAS scan (FIN+PSH+URG)
+        tcp flags & (fin|psh|urg) == fin|psh|urg drop
+        
+        # Allow FIN from established
+        iifname "eth0" oifname "eth1" tcp flags & fin == fin ct state established accept
+        
+        # Allow RST
+        tcp flags & rst == rst accept
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        # Allow loopback
+        iif lo accept
+        
+        # Allow established/related
+        ct state established,related accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

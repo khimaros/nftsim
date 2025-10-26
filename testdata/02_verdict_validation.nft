@@ -1,0 +1,84 @@
+#!/usr/sbin/nft -f
+# Ruleset for verdict validation tests
+
+flush ruleset
+
+table inet filter {
+    set blocked_ips {
+        type ipv4_addr
+        elements = { 10.0.0.100 }
+    }
+
+    set allowed_tcp_ports {
+        type inet_service
+        elements = { 80, 443, 8080 }
+    }
+
+    set rejected_ports {
+        type inet_service
+        elements = { 23, 139, 445 }
+    }
+
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        # Accept loopback
+        iif "lo" accept
+
+        # Accept ICMP
+        meta l4proto { icmp, ipv6-icmp } accept
+
+        # Accept established/related
+        ct state established,related accept
+
+        # Accept SSH from internal network
+        ip saddr 192.168.1.0/24 tcp dport 22 accept
+
+        # Reject patterns (test different nftables syntaxes)
+        tcp dport 23 reject                                          # Direct port
+        tcp dport 25 reject with tcp reset                           # With modifier
+        tcp dport @rejected_ports reject                             # Set-based
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+
+        # Drop invalid packets
+        ct state invalid counter drop
+
+        # Allow established/related connections
+        ct state established,related counter accept
+
+        # Block traffic to blocked IPs
+        ip daddr @blocked_ips counter drop
+
+        # Allow internal network to access allowed services
+        ip saddr 192.168.1.0/24 tcp dport @allowed_tcp_ports ct state new counter accept
+
+        # Allow UDP DNS
+        ip saddr 192.168.1.0/24 udp dport 53 ct state new counter accept
+
+        # Explicitly drop external to internal
+        ip daddr 192.168.1.0/24 counter drop
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}
+
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority -100; policy accept;
+
+        # Port forward 8080 to internal server
+        iifname "eth1" tcp dport 8080 dnat to 192.168.1.50:80
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+
+        # Masquerade outbound traffic from internal network
+        ip saddr 192.168.1.0/24 oifname "eth1" masquerade
+    }
+}

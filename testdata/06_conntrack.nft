@@ -1,0 +1,36 @@
+#!/usr/sbin/nft -f
+# Ruleset for connection tracking tests
+
+flush ruleset
+
+table inet filter {
+    set allowed_tcp_ports {
+        type inet_service
+        elements = { 80, 443 }
+    }
+    
+    set allowed_udp_ports {
+        type inet_service
+        elements = { 53 }
+    }
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Drop invalid packets
+        ct state invalid counter drop
+        
+        # Allow established and related connections (KEY for stateful firewall)
+        ct state established,related counter accept
+        
+        # Allow new connections from internal network to allowed services
+        ip saddr 192.168.1.0/24 tcp dport @allowed_tcp_ports ct state new counter accept
+        ip saddr 192.168.1.0/24 udp dport @allowed_udp_ports ct state new counter accept
+        
+        # Allow ICMP from internal
+        ip saddr 192.168.1.0/24 icmp type echo-request ct state new counter accept
+        
+        # Drop external to internal
+        ip daddr 192.168.1.0/24 counter drop
+    }
+}

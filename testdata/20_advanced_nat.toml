@@ -1,0 +1,118 @@
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "203.0.113.1/24" },
+  { name = "eth2", ip = "198.51.100.1/24" },
+]
+
+routes = []
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+[[tests]]
+name = "DNAT port 8080 to internal 192.168.1.100:80"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "203.0.113.50", dest_ip = "203.0.113.1", tcp = { source_port = 50000, dest_port = 8080, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" }
+]
+
+[[tests]]
+name = "DNAT port 2222 to internal 192.168.1.101:22"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "203.0.113.50", dest_ip = "203.0.113.1", tcp = { source_port = 50100, dest_port = 2222, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.101" }
+]
+
+[[tests]]
+name = "DNAT port range 9000-9003 to 192.168.1.102"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "203.0.113.50", dest_ip = "203.0.113.1", tcp = { source_port = 50200, dest_port = 9000, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.102" }
+]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "203.0.113.50", dest_ip = "203.0.113.1", tcp = { source_port = 50201, dest_port = 9003, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.102" }
+]
+
+[[tests]]
+name = "Outbound SNAT from internal network"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "203.0.113.50", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+]
+
+[[tests]]
+name = "Masquerade on eth2"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "198.51.100.50", tcp = { source_port = 45100, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth2" },
+  { hook = "postrouting", verdict = "accept", src_nat = "198.51.100.1" }
+]
+
+[[tests]]
+name = "Bidirectional NAT - inbound DNAT with established response"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "203.0.113.50", dest_ip = "203.0.113.1", tcp = { source_port = 50300, dest_port = 8080, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" }
+]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "203.0.113.50", tcp = { source_port = 80, dest_port = 50300, flags = ["SYN", "ACK"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" }
+]
+
+[[tests]]
+name = "SNAT persistence across multiple connections"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.70", dest_ip = "203.0.113.50", tcp = { source_port = 45200, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.70", dest_ip = "203.0.113.50", tcp = { source_port = 45201, dest_port = 443, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+]
+
+[[tests]]
+name = "Multiple internal hosts with same SNAT IP"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "203.0.113.50", tcp = { source_port = 45300, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.90", dest_ip = "203.0.113.50", tcp = { source_port = 45301, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+]

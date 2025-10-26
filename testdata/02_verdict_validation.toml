@@ -1,0 +1,339 @@
+# Test config specifically designed to validate verdict checking
+# Tests prefixed with "SHOULD_FAIL:" are expected to fail (validates the validation framework itself)
+# Tests without the prefix are expected to pass
+# test.sh automatically detects SHOULD_FAIL tests and treats their failures as expected
+#
+# Reject vs Drop Distinction:
+# - nftables shows reject as "(verdict drop)" in traces
+# - nftsim parses the rule text to detect "reject" and properly distinguishes it from "drop"
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+pre_nft_commands = []
+post_nft_commands = []
+
+# Test: Packet should be dropped in FORWARD chain
+[[tests]]
+name = "Drop verdict validation"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", tcp = { source_port = 12345, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: Packet should be accepted (forwarded) but we expect drop - should FAIL
+[[tests]]
+name = "SHOULD_FAIL: Expected drop but got accept"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 32768, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: Packet should be accepted in FORWARD chain and exit on eth1
+[[tests]]
+name = "Forward with correct interface"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 32768, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Packet forwarded to eth1 but we expect eth0 - should FAIL
+[[tests]]
+name = "SHOULD_FAIL: Wrong output interface"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 32768, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: Blacklisted IP should be dropped in FORWARD chain
+[[tests]]
+name = "Blacklist drop"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "10.0.0.100", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: Established connection packets should be accepted in FORWARD chain
+# Note: No NAT on this connection, so return packet uses original IPs
+[[tests]]
+name = "Established connection return"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.60", tcp = { source_port = 50000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "1.2.3.4", tcp = { source_port = 80, dest_port = 50000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# ===== VERDICT MISMATCH TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Expected accept but got drop"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "10.0.0.100", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected drop but got accept"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40001, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# ===== REJECT VERDICT TESTS =====
+# Tests reject detection for different nftables rule syntaxes
+
+[[tests]]
+name = "Reject with set-based match"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 40002, dest_port = 445, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "reject" } ]
+
+[[tests]]
+name = "Reject with direct port match"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 50000, dest_port = 23, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "reject" } ]
+
+[[tests]]
+name = "Reject with TCP reset modifier"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 50002, dest_port = 25, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "reject" } ]
+
+# Verify reject is properly distinguished from drop
+[[tests]]
+name = "SHOULD_FAIL: Expected drop but got reject"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 40003, dest_port = 445, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected reject but got drop"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "10.0.0.100", tcp = { source_port = 40004, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "reject" } ]
+
+# ===== HOOK MISMATCH TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Expected input hook but got forward"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40004, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected forward hook but got input"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 40005, dest_port = 22, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected output hook but got forward"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40006, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "output", verdict = "accept" } ]
+
+# ===== INTERFACE MISMATCH TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Expected eth0 output but got eth1"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40007, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected eth1 output but got eth0"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", tcp = { source_port = 40008, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop", to_interface = "eth1" } ]
+
+# ===== OPTIONAL VALIDATION TESTS =====
+# These test that optional expectations (interface, NAT) don't fail when omitted
+
+[[tests]]
+name = "Interface validation is optional"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40009, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept" } ]
+
+# ===== NAT VALIDATION TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Expected SNAT but got wrong address"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40010, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "192.168.1.1" }
+]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected DNAT but got wrong address"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", tcp = { source_port = 40011, dest_port = 8080, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.100" },
+  { hook = "forward", verdict = "accept", to_interface = "eth0" }
+]
+
+[[tests]]
+name = "NAT validation is optional"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40012, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" }
+]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected SNAT when none occurs"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", tcp = { source_port = 40013, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "drop" },
+  { hook = "postrouting", verdict = "accept", src_nat = "10.0.0.1" }
+]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected DNAT when none occurs"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40024, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "1.1.1.1" },
+  { hook = "forward", verdict = "accept", to_interface = "eth1" }
+]
+
+[[tests]]
+name = "SHOULD_FAIL: Wrong DNAT port"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", tcp = { source_port = 40025, dest_port = 8080, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.50:8080" },
+  { hook = "forward", verdict = "drop", to_interface = "eth0" }
+]
+
+# ===== PROTOCOL MISMATCH TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: UDP packet but expectation for different behavior"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", udp = { source_port = 40014, dest_port = 80 } }
+expect = [ { hook = "forward", verdict = "accept" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: ICMP should be accepted but expected drop"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# ===== MULTIPLE EXPECTATIONS TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Multiple expectations with wrong verdict"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40015, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "drop", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "10.0.0.1" }
+]
+
+[[tests]]
+name = "SHOULD_FAIL: Multiple expectations with wrong NAT address"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40016, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth1" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.1" }
+]
+
+# ===== CONNECTION TRACKING TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "Multi-packet test with different verdicts"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40017, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", tcp = { source_port = 443, dest_port = 40017, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "drop", to_interface = "eth0" } ]
+
+# ===== PORT VALIDATION TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Port in allowed set but expected drop"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40018, dest_port = 8080, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Port not in allowed set but expected accept"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40019, dest_port = 9999, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# ===== EDGE CASE TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Invalid TCP flags but expected accept"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40020, dest_port = 80, flags = ["SYN", "FIN"] } }
+expect = [ { hook = "forward", verdict = "accept" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Packet to blocked IP but expected accept"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "10.0.0.100", tcp = { source_port = 40021, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: External to internal should drop but expected accept"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", tcp = { source_port = 40022, dest_port = 22, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# ===== HOOK SEQUENCE TESTS (SHOULD FAIL) =====
+
+[[tests]]
+name = "SHOULD_FAIL: Dropped in prerouting but expected forward"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40026, dest_port = 80, flags = ["SYN", "FIN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "SHOULD_FAIL: Dropped in forward but expected postrouting"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "10.0.0.100", tcp = { source_port = 40027, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "drop" },
+  { hook = "postrouting", verdict = "accept", src_nat = "10.0.0.1" }
+]
+
+[[tests]]
+name = "SHOULD_FAIL: Expected INPUT but packet routed to FORWARD"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40028, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+# ===== COMPLEX SCENARIO TESTS =====
+
+[[tests]]
+name = "DNAT with correct expectations"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", tcp = { source_port = 50000, dest_port = 8080, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.50" },
+  { hook = "forward", verdict = "drop", to_interface = "eth0" }
+]
+
+[[tests]]
+name = "Multi-hook with optional interface"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40023, dest_port = 80, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept" },
+  { hook = "postrouting", verdict = "accept", src_nat = "10.0.0.1" }
+]

@@ -1,0 +1,50 @@
+table inet nat {
+    chain prerouting {
+        type nat hook prerouting priority -100; policy accept;
+        
+        # DNAT: Port forwarding to internal web server
+        iifname "eth1" tcp dport 8080 dnat ip to 192.168.1.100:80
+        
+        # DNAT: Port forwarding to internal SSH server
+        iifname "eth1" tcp dport 2222 dnat ip to 192.168.1.101:22
+        
+        # DNAT range: Multiple ports to single internal service
+        iifname "eth1" tcp dport 9000-9003 dnat ip to 192.168.1.102
+    }
+    
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+        
+        # SNAT for internal network with explicit IP
+        oifname "eth1" ip saddr 192.168.1.0/24 snat ip to 203.0.113.10
+        
+        # Masquerade for backup interface
+        oifname "eth2" masquerade
+    }
+}
+
+table inet filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Allow all forwarding (NAT handles address translation)
+        ct state established,related accept
+        
+        # Allow new connections to DNATed services
+        iifname "eth1" oifname "eth0" tcp dport { 80, 22 } accept
+        iifname "eth1" oifname "eth0" tcp dport 9000-9003 accept
+        
+        # Allow outbound from internal
+        iifname "eth0" accept
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        iif lo accept
+        ct state established,related accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

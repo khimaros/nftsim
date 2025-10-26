@@ -1,0 +1,62 @@
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+[[tests]]
+name = "TTL 64 - normal packet accepted"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "TTL 2 - minimum valid TTL accepted"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45001, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "TTL 255 - maximum TTL accepted"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45002, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "UDP with normal TTL accepted"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", udp = { source_port = 50000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "ICMP with normal TTL accepted"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "Established connection with normal TTL"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45100, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", tcp = { source_port = 80, dest_port = 45100, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45100, dest_port = 80, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]

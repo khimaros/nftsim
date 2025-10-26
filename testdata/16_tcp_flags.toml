@@ -1,0 +1,91 @@
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+[[tests]]
+name = "Valid SYN packet - new connection"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "Invalid FIN+SYN combination - blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45001, dest_port = 80, flags = ["FIN", "SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Invalid SYN+RST combination - blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45002, dest_port = 80, flags = ["SYN", "RST"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "NULL scan (no flags) - blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45003, dest_port = 80, flags = [] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "XMAS scan (FIN+PSH+URG) - blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45004, dest_port = 80, flags = ["FIN", "PSH", "URG"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Valid RST packet - allowed"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45005, dest_port = 80, flags = ["RST"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "FIN on established connection"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45100, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", tcp = { source_port = 80, dest_port = 45100, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45100, dest_port = 80, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45100, dest_port = 80, flags = ["FIN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "ACK without established connection - blocked by conntrack"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45200, dest_port = 80, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Valid SYN+ACK reply to established connection"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "8.8.8.8", tcp = { source_port = 45300, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.60", tcp = { source_port = 80, dest_port = 45300, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]

@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# Ruleset for accept verdict tests (input chain)
+
+flush ruleset
+
+table inet filter {
+    set allowed_input_tcp {
+        type inet_service
+        elements = { 22 }
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        # Allow established/related
+        ct state established,related counter accept
+        
+        # Allow loopback
+        iif "lo" counter accept
+        
+
+        
+        # Allow SSH from internal network only
+        ip saddr 192.168.1.0/24 tcp dport @allowed_input_tcp ct state new counter accept
+        
+        # Drop everything else from external
+        counter drop
+    }
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+    }
+}

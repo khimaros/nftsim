@@ -1,0 +1,34 @@
+table inet filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        ct state established,related accept
+        
+        # Allow echo-request/reply (ping)
+        iifname "eth0" oifname "eth1" icmp type echo-request accept
+        iifname "eth1" oifname "eth0" icmp type echo-reply accept
+        
+        # Allow destination-unreachable (ICMP type 3)
+        icmp type destination-unreachable accept
+        
+        # Allow time-exceeded (ICMP type 11)
+        icmp type time-exceeded accept
+        
+        # Allow parameter-problem (ICMP type 12)
+        icmp type parameter-problem accept
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        iif lo accept
+        ct state established,related accept
+        
+        # Allow ping to firewall
+        icmp type echo-request accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

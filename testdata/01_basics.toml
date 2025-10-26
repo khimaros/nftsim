@@ -1,0 +1,113 @@
+# config.toml
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+[[tests]]
+name = "Allowed HTTP Connection from Internal"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 32768, dest_port = "http", flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", tcp = { source_port = "http", dest_port = 32768, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 32768, dest_port = "http", flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "Allowed HTTPS Connection from Internal"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "1.1.1.1", tcp = { source_port = 40000, dest_port = "https", flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.1.1.1", dest_ip = "192.168.1.50", tcp = { source_port = 443, dest_port = 40000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Blocked Connection to Disallowed Port"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 50000, dest_port = 25, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Blocked External to Internal Connection"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", tcp = { source_port = 12345, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Blocked IP from Blacklist"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "10.0.0.100", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: Multiple simultaneous connections from same source
+[[tests]]
+name = "Multiple Simultaneous Connections - Same Source"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 50001, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 50002, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50003, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50004, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Different source IPs to same destination
+[[tests]]
+name = "Multiple Sources to Same Destination"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "8.8.8.8", tcp = { source_port = 40001, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.20", dest_ip = "8.8.8.8", tcp = { source_port = 40002, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.30", dest_ip = "8.8.8.8", tcp = { source_port = 40003, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: High port numbers (ephemeral range)
+[[tests]]
+name = "High Ephemeral Port Numbers"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "8.8.8.8", tcp = { source_port = 60000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "8.8.8.8", tcp = { source_port = 65535, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Low port numbers (privileged ports)
+[[tests]]
+name = "Low Port Numbers from Client"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "8.8.8.8", tcp = { source_port = 1024, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "8.8.8.8", tcp = { source_port = 500, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+

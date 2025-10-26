@@ -1,0 +1,51 @@
+# ICMP protocol tests
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+pre_nft_commands = []
+post_nft_commands = []
+
+# Test: Ping from internal network should be allowed
+[[tests]]
+name = "Ping from Internal Allowed"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Ping reply should be allowed back
+[[tests]]
+name = "Ping Reply Allowed"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", icmp = { type = 0, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: Ping from external to internal should be dropped
+[[tests]]
+name = "External Ping to Internal Dropped"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: Ping to firewall itself from internal should be accepted
+[[tests]]
+name = "Ping to Firewall from Internal"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+# Test: Ping to firewall from external should be dropped
+[[tests]]
+name = "External Ping to Firewall Dropped"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "input", verdict = "drop" } ]

@@ -1,0 +1,219 @@
+# Laptop firewall tests
+# Tests simple laptop/workstation firewall with selective service access
+
+[network]
+interfaces = [
+  { name = "wlp170s0", ip = "192.168.1.100/24" },  # WiFi interface
+  { name = "wg0", ip = "10.1.200.170/24" },       # VPN interface 0
+  { name = "wg1", ip = "10.1.201.170/24" },       # VPN interface 1
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "192.168.1.1" },
+]
+
+[guest_setup]
+sysctls = {}
+
+# ===== INPUT CHAIN TESTS =====
+
+[[tests]]
+name = "ICMP to laptop accepted"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", icmp = { type = "echo-request", code = 0 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "mDNS from WAN accepted (UDP 5353)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", udp = { source_port = 51000, dest_port = 5353 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "LLMNR from WAN accepted (TCP 5355)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 52000, dest_port = 5355, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "LLMNR from WAN accepted (UDP 5355)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", udp = { source_port = 53000, dest_port = 5355 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "MAVLink data accepted (UDP 14550)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", udp = { source_port = 54000, dest_port = 14550 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "SSH from WAN dropped (commented out in rules)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 55000, dest_port = "ssh", flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "SSH from VPN dropped (commented out in rules)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 56000, dest_port = "ssh", flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Kodi from VPN dropped (commented out in rules)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 57000, dest_port = 8080, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "WireGuard from WAN dropped (commented out in rules)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "203.0.113.50", dest_ip = "192.168.1.100", udp = { source_port = 58000, dest_port = 51820 } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Random port from WAN dropped"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 59000, dest_port = 9999, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Random port from VPN0 dropped"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 60000, dest_port = 7777, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Random port from VPN1 dropped"
+[[tests.packets]]
+packet = { on_interface = "wg1", source_ip = "10.1.201.50", dest_ip = "10.1.201.170", tcp = { source_port = 61000, dest_port = 6666, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# ===== SENSITIVE PORT TESTS - DATABASE SERVICES =====
+
+[[tests]]
+name = "MySQL from LAN dropped (port 3306)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61001, dest_port = 3306, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "MySQL from VPN dropped (port 3306)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61002, dest_port = 3306, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "PostgreSQL from LAN dropped (port 5432)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61003, dest_port = 5432, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "PostgreSQL from VPN dropped (port 5432)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61004, dest_port = 5432, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# ===== SENSITIVE PORT TESTS - REMOTE ADMIN/MANAGEMENT =====
+
+[[tests]]
+name = "RDP from LAN dropped (port 3389)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61009, dest_port = 3389, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "RDP from VPN dropped (port 3389)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61010, dest_port = 3389, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "VNC from LAN dropped (port 5900)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61011, dest_port = 5900, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "VNC from VPN dropped (port 5900)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61012, dest_port = 5900, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "SMB from LAN dropped (port 445)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61013, dest_port = 445, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "SMB from VPN dropped (port 445)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61014, dest_port = 445, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "SMB NetBIOS from LAN dropped (port 139)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61015, dest_port = 139, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "SMB NetBIOS from VPN dropped (port 139)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61016, dest_port = 139, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Telnet from LAN dropped (port 23)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61017, dest_port = 23, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Telnet from VPN dropped (port 23)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61018, dest_port = 23, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# ===== SENSITIVE PORT TESTS - CONTAINER/ORCHESTRATION =====
+
+[[tests]]
+name = "Docker API from LAN dropped (port 2375)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61019, dest_port = 2375, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Docker API from VPN dropped (port 2375)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61020, dest_port = 2375, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Docker API TLS from LAN dropped (port 2376)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61021, dest_port = 2376, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+[[tests]]
+name = "Docker API TLS from VPN dropped (port 2376)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61022, dest_port = 2376, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# ===== FORWARD AND OUTPUT CHAIN TESTS =====
+# Note: FORWARD and OUTPUT chains have no rules (default policy applies)
+
+[[tests]]
+name = "Outbound HTTP accepted (default OUTPUT policy)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 50001, dest_port = "http", flags = ["SYN"] } }
+expect = [ { hook = "output", verdict = "accept" } ]
+
+[[tests]]
+name = "Outbound HTTPS accepted (default OUTPUT policy)"
+[[tests.packets]]
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50002, dest_port = "https", flags = ["SYN"] } }
+expect = [ { hook = "output", verdict = "accept" } ]

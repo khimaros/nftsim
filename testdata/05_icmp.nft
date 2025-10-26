@@ -1,0 +1,41 @@
+#!/usr/sbin/nft -f
+# Ruleset for ICMP tests
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        # Allow established/related
+        ct state established,related counter accept
+        
+        # Allow loopback
+        iif "lo" counter accept
+        
+        # Allow ICMP echo request from internal network
+        ip saddr 192.168.1.0/24 icmp type echo-request counter accept
+        
+        # Drop everything else
+        counter drop
+    }
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Drop invalid packets
+        ct state invalid counter drop
+        
+        # Allow established/related connections
+        ct state established,related counter accept
+        
+        # Allow ICMP echo requests from internal network
+        ip saddr 192.168.1.0/24 icmp type echo-request ct state new counter accept
+        
+        # Allow ICMP echo replies
+        icmp type echo-reply counter accept
+        
+        # Drop external to internal
+        ip daddr 192.168.1.0/24 counter drop
+    }
+}

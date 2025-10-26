@@ -1,0 +1,230 @@
+#!/usr/sbin/nft -f
+
+#flush ruleset
+
+define wan_dev = { "enp1s0" }
+
+define dns_net = { 8.8.8.8, 8.8.4.4 }
+
+define docker_dev = { "docker0", "docker1" }
+define docker_net = { 172.16.0.0/16, 172.17.0.0/16 }
+
+define cnt_dns_addr = "172.16.0.4"
+define cnt_smtp_addr = "172.16.0.6"
+define cnt_slb_addr = "172.16.0.16"
+define cnt_certs_addr = "172.16.0.20"
+define cnt_sync_addr = "172.16.0.22"
+define cnt_nas_addr = "172.16.0.24"
+define cnt_src_addr = "172.16.0.26"
+define cnt_media_addr = "172.16.0.28"
+define cnt_transfer_addr = "172.16.0.30"
+define cnt_llm_addr = "172.16.0.32"
+
+define vpn_dev = { "wg0" }
+define vpn_net = { 10.1.200.0/24 }
+#define vpn_net6 = { 2a01:4ff:f0:9451:200::1/80 }
+
+table inet nat {
+        chain POSTROUTING {
+                type nat hook postrouting priority srcnat; policy accept;
+
+                # drop packets in "invalid" connection-tracking state
+                ct state invalid counter drop
+        }
+}
+
+table ip nat {
+        chain PREROUTING {
+                type nat hook prerouting priority dstnat; policy accept;
+
+                # accept all icmp/icmpv6 packets
+                meta l4proto { icmp, ipv6-icmp } counter accept
+
+                # accept packets that are part of an established connection
+                ct state established,related counter accept
+
+                # docker baseline rules
+                fib daddr type local counter jump DOCKER
+        }
+
+        chain OUTPUT {
+                type nat hook output priority -100; policy accept;
+
+                # docker baseline rules
+                ip daddr != 127.0.0.0/8 fib daddr type local counter jump DOCKER
+        }
+
+        chain POSTROUTING {
+                type nat hook postrouting priority srcnat; policy accept;
+
+                # drop packets in "invalid" connection-tracking state
+                ct state invalid counter drop
+
+                # docker baseline rules
+                oifname != "docker0" ip saddr 172.17.0.0/16 counter masquerade
+                oifname != "docker1" ip saddr 172.16.0.0/16 counter masquerade
+        }
+
+        chain DOCKER {
+                # docker baseline rules
+                iifname "docker0" counter return
+                iifname "docker1" counter return
+
+                # docker container ports which are exposed to all interfaces
+                #meta l4proto tcp tcp dport 25 counter dnat to $cnt_smtp_addr:25
+                #meta l4proto tcp tcp dport 53 counter dnat to $cnt_dns_addr:53
+                #meta l4proto udp udp dport 53 counter dnat to $cnt_dns_addr:53
+                #meta l4proto tcp tcp dport 443 counter dnat to $cnt_slb_addr:443
+
+                # docker container ports which are exposed to vpn
+                # N.B. for these to be effective, there must also be an accompanying rule in the filter table
+                iifname $vpn_dev meta l4proto tcp tcp dport 139 counter dnat to $cnt_nas_addr:139
+                iifname $vpn_dev meta l4proto tcp tcp dport 445 counter dnat to $cnt_nas_addr:445
+                #iifname $vpn_dev meta l4proto tcp tcp dport 143 counter dnat to $cnt_imap_addr:143
+                #iifname $vpn_dev meta l4proto tcp tcp dport 443 counter dnat to $cnt_slb_addr:443
+                #iifname $vpn_dev meta l4proto tcp tcp dport 587 counter dnat to $cnt_smtp_addr:587
+                iifname $vpn_dev meta l4proto tcp tcp dport 2422 counter dnat to $cnt_src_addr:22
+                #iifname $vpn_dev meta l4proto tcp tcp dport 8066 counter dnat to $cnt_push_addr:80
+                iifname $vpn_dev meta l4proto tcp tcp dport 8096 counter dnat to $cnt_media_addr:8096
+                #iifname $vpn_dev meta l4proto tcp tcp dport 11434 counter dnat to $cnt_llm_addr:11434
+                iifname $vpn_dev meta l4proto tcp tcp dport 7860 counter dnat to $cnt_llm_addr:8080
+                iifname $vpn_dev meta l4proto tcp tcp dport 22000 counter dnat to $cnt_sync_addr:22000
+                iifname $vpn_dev meta l4proto tcp tcp dport 51413 counter dnat to $cnt_transfer_addr:51413
+
+                # reject other vpn traffic to docker containers
+                iifname $vpn_dev oifname $docker_dev counter reject
+
+                counter return
+        }
+}
+
+table inet filter {
+        chain INPUT {
+                type filter hook input priority filter; policy drop;
+
+                # accept all loopback packets
+                iif "lo" accept
+
+                # accept all icmp/icmpv6 packets
+                meta l4proto { icmp, ipv6-icmp } counter accept
+
+                # accept packets that are part of an established connection
+                ct state established,related counter accept
+
+                # accept all DHCPv6 packets received at a link-local address
+                ip6 daddr fe80::/64 udp dport dhcpv6-client counter accept
+
+                # expose openssh server to wan and vpn
+                iifname $wan_dev tcp dport 22 counter accept
+                iifname $vpn_dev tcp dport 22 counter accept
+
+                # expose dns server on 172.16.0.1 to containers
+                iifname $docker_dev udp dport 53 counter accept
+                iifname $docker_dev tcp dport 53 counter accept
+
+                # expose host-mode slb container to vpn
+                iifname $vpn_dev tcp dport 443 counter accept
+
+                # expose netdata to vpn
+                iifname $vpn_dev tcp dport 19999 counter accept
+
+                # expose apt-cacher-ng server on 172.16.0.1 to containers
+                iifname $docker_dev tcp dport 3142 counter accept
+
+                # reject all other traffic from docker containers
+                iifname $docker_dev counter reject
+        }
+
+        chain FORWARD {
+                type filter hook forward priority filter; policy drop;
+
+                # accept packets that are part of an established connection
+                ct state established,related counter accept
+
+                # docker baseline rules
+                counter jump DOCKER-ISOLATION-STAGE-1
+                oifname "docker0" ct state related,established counter accept
+                oifname "docker0" counter jump DOCKER
+                iifname "docker0" oifname != "docker0" counter accept
+                iifname "docker0" oifname "docker0" counter accept
+                oifname "docker1" ct state related,established counter accept
+                oifname "docker1" counter jump DOCKER
+                iifname "docker1" oifname != "docker1" counter accept
+                iifname "docker1" oifname "docker1" counter accept
+                iifname "docker2" oifname "docker2" counter accept
+
+                # reject all other packets on docker interfaces
+                oifname $docker_dev counter reject
+                iifname $docker_dev counter reject
+
+                counter return
+        }
+
+        chain OUTPUT {
+                type filter hook output priority filter; policy accept;
+        }
+
+        chain PREROUTING {
+                type filter hook prerouting priority -150; policy accept;
+
+                # drop packets in "invalid" connection-tracking state
+                ct state invalid counter drop
+        }
+
+        # docker baseline rules
+        chain DOCKER-ISOLATION-STAGE-1 {
+                iifname "docker0" oifname != "docker0" counter jump DOCKER-ISOLATION-STAGE-2
+                iifname "docker1" oifname != "docker1" counter jump DOCKER-ISOLATION-STAGE-2
+                oifname "docker2" ip saddr != 172.32.0.0/16 counter drop
+                iifname "docker2" ip daddr != 172.32.0.0/16 counter drop
+        }
+
+        # docker baseline rules
+        chain DOCKER-ISOLATION-STAGE-2 {
+                oifname "docker0" counter drop
+                oifname "docker1" counter drop
+                counter return
+        }
+
+        # docker container rules
+        chain DOCKER {
+                iifname "docker1" counter return
+                oifname != "docker1" counter return
+
+                # container ports which are exposed to other interfaces must be present here
+                #meta l4proto tcp ip daddr $cnt_dns_addr tcp dport 53 counter accept
+                #meta l4proto udp ip daddr $cnt_dns_addr udp dport 53 counter accept
+                #meta l4proto tcp ip daddr $cnt_smtp_addr tcp dport 25 counter accept
+                #meta l4proto tcp ip daddr $cnt_smtp_addr tcp dport 587 counter accept
+                #meta l4proto tcp ip daddr $cnt_imap_addr tcp dport 143 counter accept
+                meta l4proto tcp ip daddr $cnt_nas_addr tcp dport 139 counter accept
+                meta l4proto tcp ip daddr $cnt_nas_addr tcp dport 445 counter accept
+                #meta l4proto tcp ip daddr $cnt_slb_addr tcp dport 443 counter accept
+                meta l4proto tcp ip daddr $cnt_src_addr tcp dport 22 counter accept
+                #meta l4proto tcp ip daddr $cnt_push_addr tcp dport 8066 counter accept
+                meta l4proto tcp ip daddr $cnt_media_addr tcp dport 8096 counter accept
+                #meta l4proto tcp ip daddr $cnt_llm_addr tcp dport 11434 counter accept
+                meta l4proto tcp ip daddr $cnt_llm_addr tcp dport 8080 counter accept
+                meta l4proto tcp ip daddr $cnt_sync_addr tcp dport 22000 counter accept
+                meta l4proto tcp ip daddr $cnt_transfer_addr tcp dport 51413 counter accept
+
+                # reject other vpn traffic to docker containers
+                iifname $vpn_dev oifname $docker_dev counter reject
+
+                counter return
+        }
+}
+
+# fail2ban table holds blocks which are maintained automatically
+# by the fail2ban service.
+table inet fail2ban {
+        chain INPUT {
+                type filter hook input priority -100;
+                jump USER
+        }
+        chain FORWARD {
+                type filter hook forward priority -100;
+                jump USER
+        }
+        chain USER {}
+}

@@ -1,0 +1,164 @@
+# Connection tracking edge cases and stateful firewall tests
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+pre_nft_commands = []
+post_nft_commands = []
+
+# Test: New TCP connection establishes state
+[[tests]]
+name = "TCP SYN Creates New Connection State"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: SYN-ACK allowed for established connection
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.100", tcp = { source_port = 443, dest_port = 40000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: ACK completes handshake on established connection
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 443, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: FIN starts connection teardown
+[[tests]]
+name = "TCP FIN Teardown Allowed on Established"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.1.1.1", dest_ip = "192.168.1.100", tcp = { source_port = 80, dest_port = 50000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50000, dest_port = 80, flags = ["ACK", "FIN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: UDP stateful connection tracking
+[[tests]]
+name = "UDP Stateful Tracking"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.4.4", udp = { source_port = 55000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Response should be allowed due to established state
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.4.4", dest_ip = "192.168.1.50", udp = { source_port = 53, dest_port = 55000 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: ICMP stateful tracking
+[[tests]]
+name = "ICMP Echo Request-Reply State Tracking"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "1.1.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Echo reply should be allowed due to related state
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.1.1.1", dest_ip = "192.168.1.75", icmp = { type = 0, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: Unsolicited external connection blocked
+[[tests]]
+name = "Unsolicited External TCP Blocked"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.200", tcp = { source_port = 60000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: RST allowed on established connection
+[[tests]]
+name = "TCP RST on Established Connection"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.150", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.150", tcp = { source_port = 80, dest_port = 45000, flags = ["RST"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: Multiple concurrent connections from same source
+[[tests]]
+name = "Multiple Concurrent Connections - Same Source"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 41000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 41001, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 41002, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Connection reuse - SYN on same 5-tuple after previous connection
+[[tests]]
+name = "Connection Reuse - SYN on Previous 5-Tuple"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.25", dest_ip = "8.8.8.8", tcp = { source_port = 35000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.25", tcp = { source_port = 80, dest_port = 35000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.25", dest_ip = "8.8.8.8", tcp = { source_port = 35000, dest_port = 80, flags = ["RST"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# New SYN on same 5-tuple (simulating connection reuse)
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.25", dest_ip = "8.8.8.8", tcp = { source_port = 35000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Bidirectional UDP traffic
+[[tests]]
+name = "Bidirectional UDP Exchange"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "8.8.8.8", udp = { source_port = 60000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.60", udp = { source_port = 53, dest_port = 60000 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "8.8.8.8", udp = { source_port = 60000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: TCP data transfer on established connection
+[[tests]]
+name = "TCP Data Transfer After Handshake"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "1.1.1.1", tcp = { source_port = 48000, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.1.1.1", dest_ip = "192.168.1.80", tcp = { source_port = 443, dest_port = 48000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "1.1.1.1", tcp = { source_port = 48000, dest_port = 443, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Additional ACK packets (simulating data transfer)
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "1.1.1.1", tcp = { source_port = 48000, dest_port = 443, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.1.1.1", dest_ip = "192.168.1.80", tcp = { source_port = 443, dest_port = 48000, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]

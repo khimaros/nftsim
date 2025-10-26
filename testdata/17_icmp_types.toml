@@ -1,0 +1,124 @@
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+# IMPORTANT: Test ordering matters due to conntrack state persistence!
+# Tests that expect DROP must use unique IP pairs that haven't been used
+# in earlier tests, otherwise conntrack may mark packets as "related"
+
+[[tests]]
+name = "Blocked: Echo request from external (before any connection)"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.1.1.1", dest_ip = "192.168.1.10", icmp = { type = "echo-request", code = 0 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Blocked: Echo reply wrong direction (before connection)"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.20", dest_ip = "2.2.2.2", icmp = { type = "echo-reply", code = 0 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Blocked: Redirect (ICMP type 5)"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "3.3.3.3", dest_ip = "192.168.1.30", icmp = { type = "redirect", code = 0 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Blocked: Router advertisement (ICMP type 9)"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "4.4.4.4", dest_ip = "192.168.1.40", icmp = { type = "router-advertisement", code = 0 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Allowed: Echo request outbound"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", icmp = { type = "echo-request", code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "Allowed: Echo reply inbound"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", icmp = { type = "echo-reply", code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Allowed: Destination unreachable"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.51", icmp = { type = "destination-unreachable", code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Allowed: Time exceeded"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.52", icmp = { type = "time-exceeded", code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Allowed: Parameter problem"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.53", icmp = { type = "parameter-problem", code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Bidirectional ping sequence"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.60", icmp = { type = 0, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests]]
+name = "Multiple ICMP types in sequence"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.70", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.70", icmp = { type = 3, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.70", icmp = { type = 11, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests]]
+name = "Conntrack pollution test: After established ping, reverse direction still blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "9.9.9.9", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "9.9.9.9", dest_ip = "192.168.1.80", icmp = { type = 0, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "10.10.10.10", dest_ip = "192.168.1.90", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "drop" } ]

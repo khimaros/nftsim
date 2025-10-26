@@ -1,0 +1,51 @@
+# UDP protocol tests
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+pre_nft_commands = []
+post_nft_commands = []
+
+# Test: DNS query from internal network should be allowed
+[[tests]]
+name = "DNS Query Allowed"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", udp = { source_port = 50000, dest_port = "domain" } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: DNS response should be allowed back
+[[tests]]
+name = "DNS Response Allowed"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", udp = { source_port = "domain", dest_port = 50000 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test: NTP from internal should be allowed
+[[tests]]
+name = "NTP Allowed"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "129.6.15.28", udp = { source_port = 40000, dest_port = "ntp" } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test: Random UDP to disallowed port should be dropped
+[[tests]]
+name = "Disallowed UDP Port Dropped"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", udp = { source_port = 60000, dest_port = 9999 } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test: External UDP to internal should be dropped
+[[tests]]
+name = "External UDP to Internal Dropped"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", udp = { source_port = 50000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "drop" } ]

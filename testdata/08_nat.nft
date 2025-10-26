@@ -1,0 +1,45 @@
+table inet filter {
+    chain prerouting {
+        type nat hook prerouting priority -100; policy accept;
+        
+        # DNAT: External requests to 203.0.113.10:80 -> Internal server 192.168.1.50:8080
+        iifname "eth1" ip daddr 203.0.113.10 tcp dport 80 dnat to 192.168.1.50:8080
+    }
+    
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+        
+        # SNAT: Internal network going out gets masqueraded
+        oifname "eth1" ip saddr 192.168.1.0/24 masquerade
+        
+        # Explicit SNAT example
+        oifname "eth1" ip saddr 10.0.0.0/24 snat to 203.0.113.5
+    }
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Allow established/related (for NAT return traffic)
+        ct state established,related accept
+        
+        # Allow traffic from internal to external
+        iifname "eth0" oifname "eth1" accept
+        
+        # Allow DNAT'd traffic
+        iifname "eth1" oifname "eth0" ct status dnat accept
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        # Allow loopback
+        iif lo accept
+        
+        # Allow established/related
+        ct state established,related accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

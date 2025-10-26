@@ -1,0 +1,53 @@
+#!/usr/sbin/nft -f
+
+# Test ruleset for guest-originated packets
+# Tests OUTPUT and INPUT hooks with loopback and guest IPs
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        # Allow loopback
+        iifname "lo" accept
+
+        # Allow established connections
+        ct state established,related accept
+
+        # Allow ICMP
+        icmp type echo-request accept
+
+        # Allow SSH
+        tcp dport 22 accept
+    }
+
+    chain output {
+        type filter hook output priority 0; policy drop;
+
+        # Allow loopback
+        oifname "lo" accept
+
+        # Allow established connections
+        ct state established,related accept
+
+        # Allow DNS
+        udp dport 53 accept
+
+        # Allow HTTP/HTTPS
+        tcp dport { 80, 443 } accept
+
+        # Allow ICMP
+        icmp type echo-request accept
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+
+        # Allow established connections
+        ct state established,related accept
+
+        # Allow internal to external
+        iifname "eth0" oifname "eth1" accept
+    }
+}

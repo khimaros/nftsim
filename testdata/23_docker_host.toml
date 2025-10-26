@@ -1,0 +1,204 @@
+# Docker host firewall tests
+# Tests comprehensive Docker networking with VPN, NAT, and container port forwarding
+
+[network]
+interfaces = [
+  { name = "enp1s0", ip = "192.168.0.115/24" },  # WAN interface
+  { name = "docker0", ip = "172.17.0.1/16" },    # Docker network 0
+  { name = "docker1", ip = "172.16.0.1/16" },    # Docker network 1
+  { name = "wg0", ip = "10.1.200.1/24" },        # VPN interface
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "192.168.0.1" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+# ===== INPUT CHAIN TESTS =====
+
+[[tests]]
+name = "ICMP to host accepted"
+[[tests.packets]]
+packet = { on_interface = "enp1s0", source_ip = "192.168.0.50", dest_ip = "192.168.0.115", icmp = { type = "echo-request", code = 0 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "SSH from WAN accepted"
+[[tests.packets]]
+packet = { on_interface = "enp1s0", source_ip = "203.0.113.50", dest_ip = "192.168.0.115", tcp = { source_port = 50000, dest_port = "ssh", flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "SSH from VPN accepted"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 51000, dest_port = "ssh", flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "DNS from docker0 to host accepted (UDP)"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "172.17.0.1", udp = { source_port = 52000, dest_port = "domain" } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "DNS from docker1 to host accepted (TCP)"
+[[tests.packets]]
+packet = { on_interface = "docker1", source_ip = "172.16.0.10", dest_ip = "172.16.0.1", tcp = { source_port = 53000, dest_port = "domain", flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "HTTPS from VPN to host accepted (host-mode SLB container)"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 54000, dest_port = "https", flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "Netdata from VPN to host accepted"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 55000, dest_port = 19999, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "Apt-cacher-ng from docker0 accepted"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "172.17.0.1", tcp = { source_port = 56000, dest_port = 3142, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+[[tests]]
+name = "Random port from docker rejected"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "172.17.0.1", tcp = { source_port = 57000, dest_port = 9999, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "reject" } ]
+
+# ===== NAT PREROUTING TESTS - DNAT TO CONTAINERS =====
+
+[[tests]]
+name = "VPN to NAS Samba port 139 - DNAT"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 60000, dest_port = 139, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.24" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to NAS Samba port 445 - DNAT"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 61000, dest_port = 445, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.24" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to source control (git) - DNAT to port 22"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 62000, dest_port = 2422, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.26" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to media server (Jellyfin) - DNAT"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 63000, dest_port = 8096, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.28" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to LLM service - DNAT to port 8080"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 64000, dest_port = 7860, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.32" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to Syncthing - DNAT"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 65000, dest_port = 22000, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.22" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to transfer service - DNAT"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 50001, dest_port = 51413, flags = ["SYN"] } }
+expect = [
+  { hook = "prerouting", verdict = "accept", dst_nat = "172.16.0.30" },
+  { hook = "forward", verdict = "accept", to_interface = "docker1" },
+]
+
+[[tests]]
+name = "VPN to unmapped docker port - rejected at NAT"
+[[tests.packets]]
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "172.16.0.99", tcp = { source_port = 50002, dest_port = 9999, flags = ["SYN"] } }
+expect = [ { hook = "prerouting", verdict = "accept" } ]
+
+# ===== FORWARD CHAIN TESTS - DOCKER TO INTERNET =====
+
+[[tests]]
+name = "Docker0 to internet forwarded with masquerade"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "8.8.8.8", tcp = { source_port = 50003, dest_port = "https", flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "enp1s0" },
+  { hook = "postrouting", verdict = "accept", src_nat = "192.168.0.115" },
+]
+
+[[tests]]
+name = "Docker1 to internet forwarded with masquerade"
+[[tests.packets]]
+packet = { on_interface = "docker1", source_ip = "172.16.0.10", dest_ip = "1.1.1.1", tcp = { source_port = 50004, dest_port = "http", flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "enp1s0" },
+  { hook = "postrouting", verdict = "accept", src_nat = "192.168.0.115" },
+]
+
+[[tests]]
+name = "Docker0 to docker1 blocked by isolation"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "172.16.0.20", tcp = { source_port = 50005, dest_port = "http", flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Docker1 to docker0 blocked by isolation"
+[[tests.packets]]
+packet = { on_interface = "docker1", source_ip = "172.16.0.10", dest_ip = "172.17.0.20", tcp = { source_port = 50006, dest_port = "http", flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+[[tests]]
+name = "Docker0 to docker0 allowed (same network)"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "172.17.0.20", tcp = { source_port = 50007, dest_port = "http", flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "docker0" } ]
+
+[[tests]]
+name = "Docker1 to docker1 allowed (same network)"
+[[tests.packets]]
+packet = { on_interface = "docker1", source_ip = "172.16.0.10", dest_ip = "172.16.0.20", tcp = { source_port = 50008, dest_port = "http", flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "docker1" } ]
+
+# ===== PREROUTING INVALID STATE TESTS =====
+
+[[tests]]
+name = "Invalid state dropped at prerouting (SYN+FIN)"
+[[tests.packets]]
+packet = { on_interface = "enp1s0", source_ip = "203.0.113.50", dest_ip = "192.168.0.115", tcp = { source_port = 50009, dest_port = "ssh", flags = ["SYN", "FIN"] } }
+expect = [ { hook = "prerouting", verdict = "drop" } ]
+
+# ===== ICMP TESTS =====
+
+[[tests]]
+name = "ICMP from docker accepted at prerouting NAT"
+[[tests.packets]]
+packet = { on_interface = "docker0", source_ip = "172.17.0.10", dest_ip = "8.8.8.8", icmp = { type = "echo-request", code = 0 } }
+expect = [ { hook = "prerouting", verdict = "accept" } ]

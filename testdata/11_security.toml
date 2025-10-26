@@ -1,0 +1,120 @@
+# Test suite 11: Security and Edge Cases
+#
+# Tests security features like invalid packet handling
+
+[network]
+interfaces = [
+  { name = "eth0", ip = "192.168.1.1/24" },
+  { name = "eth1", ip = "10.0.0.1/24" },
+]
+
+routes = [
+  { destination = "0.0.0.0/0", via = "10.0.0.2" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1" }
+
+# Test 1: Normal outbound connection (baseline)
+[[tests]]
+name = "Normal Outbound TCP Connection"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.50", tcp = { source_port = 80, dest_port = 40000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test 2: Unsolicited external connection - dropped
+[[tests]]
+name = "Unsolicited External Connection - Blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", tcp = { source_port = 50000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "drop" } ]
+
+# Test 3: SSH from internal network - allowed
+[[tests]]
+name = "SSH from Internal Network - Allowed"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "192.168.1.1", tcp = { source_port = 55000, dest_port = 22, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+# Test 4: SSH from external network - blocked
+[[tests]]
+name = "SSH from External Network - Blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", tcp = { source_port = 55000, dest_port = 22, flags = ["SYN"] } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# Test 5: ICMP ping to firewall - allowed
+[[tests]]
+name = "ICMP Ping to Firewall - Allowed"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "input", verdict = "accept" } ]
+
+# Test 6: ICMP from external - blocked (no rule for external ICMP)
+[[tests]]
+name = "ICMP from External to Firewall - Blocked"
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "input", verdict = "drop" } ]
+
+# Test 7: UDP outbound - allowed
+[[tests]]
+name = "UDP Outbound - Allowed"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "8.8.8.8", udp = { source_port = 60000, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.75", udp = { source_port = 53, dest_port = 60000 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+# Test 8: Multiple protocols concurrently
+[[tests]]
+name = "Multi-Protocol Concurrent Traffic"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "1.1.1.1", tcp = { source_port = 30001, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.11", dest_ip = "8.8.4.4", udp = { source_port = 30002, dest_port = 53 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.12", dest_ip = "1.1.1.1", icmp = { type = 8, code = 0 } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+# Test 9: Established connection survives
+[[tests]]
+name = "Established Connection Persistence"
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.99", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.99", tcp = { source_port = 80, dest_port = 45000, flags = ["SYN", "ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.99", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "8.8.8.8", dest_ip = "192.168.1.99", tcp = { source_port = 80, dest_port = 45000, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
+
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "192.168.1.99", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["ACK"] } }
+expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]

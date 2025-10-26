@@ -1,0 +1,31 @@
+#!/usr/sbin/nft -f
+# IPv6 firewall test
+
+flush ruleset
+
+table inet filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # Allow established/related
+        ct state established,related accept
+        
+        # Allow IPv6 from internal to external
+        iifname "eth0" oifname "eth1" ip6 saddr 2001:db8:1::/48 tcp dport { 80, 443 } accept
+        iifname "eth0" oifname "eth1" ip6 saddr 2001:db8:1::/48 udp dport 53 accept
+        iifname "eth0" oifname "eth1" ip6 saddr 2001:db8:1::/48 icmpv6 type echo-request accept
+        
+        # Block external to internal
+        ip6 daddr 2001:db8:1::/48 drop
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        iif lo accept
+        ct state established,related accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}
