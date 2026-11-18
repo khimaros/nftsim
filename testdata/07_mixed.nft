@@ -1,5 +1,5 @@
 #!/usr/sbin/nft -f
-# Ruleset for mixed protocol tests - realistic firewall
+# ruleset for mixed protocol tests - realistic firewall
 
 flush ruleset
 
@@ -17,21 +17,21 @@ table inet filter {
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Drop invalid packets
+        # drop invalid packets
         ct state invalid counter drop
         
-        # Allow established and related
+        # allow established and related
         ct state established,related counter accept
         
-        # Allow internal network outbound to allowed ports
+        # allow internal network outbound to allowed ports
         ip saddr 192.168.1.0/24 tcp dport @allowed_tcp_ports ct state new counter accept
         ip saddr 192.168.1.0/24 udp dport @allowed_udp_ports ct state new counter accept
         
-        # Allow ICMP
+        # allow ICMP
         ip saddr 192.168.1.0/24 icmp type echo-request counter accept
         icmp type echo-reply counter accept
         
-        # Drop external to internal
+        # drop external to internal
         ip daddr 192.168.1.0/24 counter drop
     }
 }

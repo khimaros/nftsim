@@ -2,30 +2,30 @@ table inet filter {
     chain input {
         type filter hook input priority 0; policy drop;
         
-        # Allow loopback
+        # allow loopback
         iif lo accept
         
-        # Rate limit ICMP ping - 2 packets per second
+        # rate limit ICMP ping - 2 packets per second
         icmp type echo-request limit rate 2/second accept
         
-        # Rate limit SSH - 5 connections per minute
+        # rate limit SSH - 5 connections per minute
         tcp dport 22 ct state new limit rate 5/minute accept
         
-        # Allow established connections
+        # allow established connections
         ct state established,related accept
     }
-    
+
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Rate limit HTTP per source - 10 packets per second
+        # rate limit HTTP - drop above 10 packets per second
         tcp dport 80 limit rate over 10/second drop
         tcp dport 80 accept
         
-        # Rate limit SYN flood - 5 new connections per second
+        # rate limit SYN flood - 5 new connections per second
         tcp flags & (fin|syn|rst|ack) == syn limit rate 5/second accept
         
-        # Allow established connections
+        # allow established connections
         ct state established,related accept
     }
     

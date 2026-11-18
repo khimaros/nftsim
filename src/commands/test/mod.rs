@@ -1,13 +1,12 @@
-// src/commands/test/mod.rs
-//
-// Test command module - coordinates all test execution components
+// test command: boots a UML guest, injects packets, and checks the traces
 
+pub mod embedded;
 mod guest;
 mod packet;
+pub(crate) mod report;
 pub(crate) mod runner;
 mod setup;
 mod trace;
 mod validation;
 
-// Re-export the main test handler
 pub use runner::handle_test;

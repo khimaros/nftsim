@@ -1,44 +1,44 @@
 table inet filter {
-    # DMZ/3-Interface Firewall
-    # eth0: Internal network (192.168.1.0/24)
-    # eth1: External/Internet (203.0.113.0/24)
+    # DMZ / 3-interface firewall
+    # eth0: internal network (192.168.1.0/24)
+    # eth1: external/internet (203.0.113.0/24)
     # eth2: DMZ network (10.99.0.0/24)
     
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Internal -> External: Allow all
+        # internal -> external: allow all
         iifname "eth0" oifname "eth1" accept
         
-        # Internal -> DMZ: Allow HTTP/HTTPS to web servers
+        # internal -> DMZ: allow HTTP/HTTPS to web servers
         iifname "eth0" oifname "eth2" ip daddr 10.99.0.0/24 tcp dport { 80, 443 } accept
         
-        # External -> DMZ: Allow HTTP/HTTPS only
+        # external -> DMZ: allow HTTP/HTTPS only
         iifname "eth1" oifname "eth2" ip daddr 10.99.0.0/24 tcp dport { 80, 443 } accept
         
-        # DMZ -> Internal: Block (DMZ is untrusted)
+        # DMZ -> internal: block (DMZ is untrusted)
         iifname "eth2" oifname "eth0" drop
         
-        # DMZ -> External: Allow for updates/outbound
+        # DMZ -> external: allow for updates/outbound
         iifname "eth2" oifname "eth1" accept
     }
     
     chain input {
         type filter hook input priority 0; policy drop;
         
-        # Allow loopback
+        # allow loopback
         iif lo accept
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Allow SSH from internal only
+        # allow SSH from internal only
         iifname "eth0" tcp dport 22 accept
         
-        # Allow ICMP from internal and DMZ
+        # allow ICMP from internal and DMZ
         iifname "eth0" icmp type echo-request accept
         iifname "eth2" icmp type echo-request accept
     }

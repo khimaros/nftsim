@@ -4,12 +4,12 @@ table inet filter {
         
         ct state established,related accept
         
-        # Allow specific protocols outbound
+        # allow specific protocols outbound
         iifname "eth0" oifname "eth1" tcp dport { 80, 443, 22, 25, 587 } accept
         iifname "eth0" oifname "eth1" udp dport { 53, 123, 514 } accept
         iifname "eth0" oifname "eth1" icmp type echo-request accept
         
-        # Return traffic
+        # return traffic
         iifname "eth1" oifname "eth0" accept
     }
     
@@ -19,13 +19,13 @@ table inet filter {
         iif lo accept
         ct state established,related accept
         
-        # Allow SSH to firewall
+        # allow SSH to firewall
         tcp dport 22 accept
         
-        # Allow DNS queries to firewall
+        # allow DNS queries to firewall
         udp dport 53 accept
         
-        # Allow ping to firewall
+        # allow ping to firewall
         icmp type echo-request accept
     }
     

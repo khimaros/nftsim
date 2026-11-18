@@ -1,5 +1,5 @@
-# VPN Gateway firewall tests
-# Tests VPN gateway with peer-based routing, masquerading, and port forwarding
+# VPN gateway firewall tests
+# VPN gateway with peer-based routing, masquerading and port forwarding
 
 [network]
 interfaces = [
@@ -14,7 +14,7 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# ===== INPUT CHAIN TESTS =====
+# ===== INPUT chain tests =====
 
 [[tests]]
 name = "ICMP to gateway accepted"
@@ -53,30 +53,30 @@ packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.1
 expect = [ { hook = "input", verdict = "accept" } ]
 
 [[tests]]
-name = "Iperf from VPN accepted"
+name = "iperf from VPN accepted"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 55000, dest_port = 5201, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
 [[tests]]
-name = "WireGuard-proxy HTTPS from WAN accepted"
+name = "HTTPS reverse proxy from WAN accepted"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.113.251", tcp = { source_port = 56000, dest_port = "https", flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
 [[tests]]
-name = "Random port from VPN rejected"
+name = "random port from VPN rejected"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 57000, dest_port = 9999, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "reject" } ]
 
 [[tests]]
-name = "Random port from WAN dropped"
+name = "random port from WAN dropped"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.113.251", tcp = { source_port = 58000, dest_port = 8080, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# ===== SENSITIVE PORT TESTS - DATABASE SERVICES =====
+# ===== sensitive port tests - database services =====
 
 [[tests]]
 name = "MySQL from WAN dropped (port 3306)"
@@ -102,7 +102,7 @@ name = "PostgreSQL from VPN rejected (port 5432)"
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 58004, dest_port = 5432, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "reject" } ]
 
-# ===== SENSITIVE PORT TESTS - REMOTE ADMIN/MANAGEMENT =====
+# ===== sensitive port tests - remote admin/management =====
 
 [[tests]]
 name = "RDP from WAN dropped (port 3389)"
@@ -153,18 +153,18 @@ packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.
 expect = [ { hook = "input", verdict = "reject" } ]
 
 [[tests]]
-name = "Telnet from WAN dropped (port 23)"
+name = "telnet from WAN dropped (port 23)"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.113.251", tcp = { source_port = 58017, dest_port = 23, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Telnet from VPN rejected (port 23)"
+name = "telnet from VPN rejected (port 23)"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 58018, dest_port = 23, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "reject" } ]
 
-# ===== SENSITIVE PORT TESTS - CONTAINER/ORCHESTRATION =====
+# ===== sensitive port tests - container/orchestration =====
 
 [[tests]]
 name = "Docker API from WAN dropped (port 2375)"
@@ -190,10 +190,10 @@ name = "Docker API TLS from VPN rejected (port 2376)"
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.1", tcp = { source_port = 58022, dest_port = 2376, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "reject" } ]
 
-# ===== FORWARD CHAIN TESTS - VPN TO WAN =====
+# ===== FORWARD chain tests - VPN to WAN =====
 
 [[tests]]
-name = "peer_aether (10.1.200.50) to internet with masquerade"
+name = "peer_bravo (10.1.200.50) to internet with masquerade"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "8.8.8.8", tcp = { source_port = 60000, dest_port = "https", flags = ["SYN"] } }
 expect = [
@@ -202,7 +202,7 @@ expect = [
 ]
 
 [[tests]]
-name = "peer_deimos (10.1.200.115) to internet with masquerade"
+name = "peer_charlie (10.1.200.115) to internet with masquerade"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.115", dest_ip = "1.1.1.1", tcp = { source_port = 61000, dest_port = "http", flags = ["SYN"] } }
 expect = [
@@ -211,7 +211,7 @@ expect = [
 ]
 
 [[tests]]
-name = "peer_perseus (10.1.200.240) to internet with masquerade"
+name = "peer_juliet (10.1.200.240) to internet with masquerade"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.240", dest_ip = "8.8.4.4", tcp = { source_port = 62000, dest_port = "https", flags = ["SYN"] } }
 expect = [
@@ -220,7 +220,7 @@ expect = [
 ]
 
 [[tests]]
-name = "peer_ares (10.1.200.230) to internet with masquerade"
+name = "peer_india (10.1.200.230) to internet with masquerade"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.230", dest_ip = "1.1.1.1", udp = { source_port = 63000, dest_port = "domain" } }
 expect = [
@@ -229,7 +229,7 @@ expect = [
 ]
 
 [[tests]]
-name = "peer_kodi_lr (10.1.200.170) to internet with masquerade"
+name = "peer_golf (10.1.200.170) to internet with masquerade"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.170", dest_ip = "8.8.8.8", tcp = { source_port = 64000, dest_port = "http", flags = ["SYN"] } }
 expect = [
@@ -238,119 +238,119 @@ expect = [
 ]
 
 [[tests]]
-name = "Unauthorized VPN peer to internet rejected"
+name = "unauthorized VPN peer to internet rejected"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "8.8.8.8", tcp = { source_port = 65000, dest_port = "https", flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "reject" } ]
 
-# ===== FORWARD CHAIN TESTS - VPN PEER TO PEER (SPECIFIC) =====
+# ===== FORWARD chain tests - VPN peer to peer (specific) =====
 
 [[tests]]
-name = "peer_echo to peer_kiste port 80 allowed"
+name = "peer_delta to peer_hotel port 80 allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.135", dest_ip = "10.1.200.225", tcp = { source_port = 50001, dest_port = "http", flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "peer_ares to peer_kodi_lr port 8080 allowed"
+name = "peer_india to peer_golf port 8080 allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.230", dest_ip = "10.1.200.170", tcp = { source_port = 50002, dest_port = 8080, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "peer_ares to peer_deimos allowed (any port)"
+name = "peer_india to peer_charlie allowed (any port)"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.230", dest_ip = "10.1.200.115", tcp = { source_port = 50003, dest_port = 9999, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "peer_ares to peer_kodi_lr allowed (any port)"
+name = "peer_india to peer_golf allowed (any port)"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.230", dest_ip = "10.1.200.170", tcp = { source_port = 50004, dest_port = 7777, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
-# ===== FORWARD CHAIN TESTS - ANY VPN PEER TO SPECIFIC PEER:PORT =====
+# ===== FORWARD chain tests - any VPN peer to specific peer:port =====
 
 [[tests]]
-name = "Any peer to peer_deimos port 443 allowed"
+name = "any peer to peer_charlie port 443 allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.115", tcp = { source_port = 50005, dest_port = "https", flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "Any peer to peer_deimos port 8096 (Jellyfin) allowed"
+name = "any peer to peer_charlie port 3000 (wiki) allowed"
 [[tests.packets]]
-packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.115", tcp = { source_port = 50006, dest_port = 8096, flags = ["SYN"] } }
+packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.115", tcp = { source_port = 50006, dest_port = 3000, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "Any peer to peer_deimos port 51413 (Syncthing) allowed"
+name = "any peer to peer_charlie port 4242 (game server) allowed"
 [[tests.packets]]
-packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.115", tcp = { source_port = 50007, dest_port = 51413, flags = ["SYN"] } }
+packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.115", tcp = { source_port = 50007, dest_port = 4242, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "Any peer to peer_nemesis port 22 (SSH) allowed"
+name = "any peer to peer_foxtrot port 22 (SSH) allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.155", tcp = { source_port = 50008, dest_port = "ssh", flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
-# ===== FORWARD CHAIN TESTS - ANY PEER TO SPECIFIC PEERS =====
+# ===== FORWARD chain tests - any peer to specific peers =====
 
 [[tests]]
-name = "Any peer to peer_hermes allowed"
+name = "any peer to peer_alpha allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.150", tcp = { source_port = 50009, dest_port = 9999, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "Any peer to peer_echo allowed"
+name = "any peer to peer_delta allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.99", dest_ip = "10.1.200.135", tcp = { source_port = 50010, dest_port = 8888, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
-# ===== FORWARD CHAIN TESTS - SPECIFIC PEER TO ANY PEER =====
+# ===== FORWARD chain tests - specific peer to any peer =====
 
 [[tests]]
-name = "peer_hermes to any peer allowed"
+name = "peer_alpha to any peer allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.150", dest_ip = "10.1.200.99", tcp = { source_port = 50011, dest_port = 7777, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "peer_ares to any peer allowed"
+name = "peer_india to any peer allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.230", dest_ip = "10.1.200.99", tcp = { source_port = 50012, dest_port = 6666, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
 [[tests]]
-name = "peer_perseus to any peer allowed"
+name = "peer_juliet to any peer allowed"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.240", dest_ip = "10.1.200.99", tcp = { source_port = 50013, dest_port = 5555, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "wg0" } ]
 
-# ===== PORT FORWARDING FROM WAN TO VPN PEER =====
+# ===== port forwarding from WAN to VPN peer =====
 
 [[tests]]
-name = "WAN to gateway port 51413 - DNAT to peer_deimos with masquerade"
+name = "WAN to gateway port 4242 - DNAT to peer_charlie with masquerade"
 [[tests.packets]]
-packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.113.251", tcp = { source_port = 50014, dest_port = 51413, flags = ["SYN"] } }
+packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.113.251", tcp = { source_port = 50014, dest_port = 4242, flags = ["SYN"] } }
 expect = [
   { hook = "prerouting", verdict = "accept", dst_nat = "10.1.200.115" },
   { hook = "forward", verdict = "accept", to_interface = "wg0" },
   { hook = "postrouting", verdict = "accept", src_nat = "10.1.200.1" },
 ]
 
-# ===== INVALID STATE AND REJECTION TESTS =====
+# ===== invalid state and rejection tests =====
 
 [[tests]]
-name = "Invalid state dropped at prerouting"
+name = "invalid state dropped at prerouting"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "203.0.113.251", tcp = { source_port = 50015, dest_port = "ssh", flags = ["SYN", "FIN"] } }
 expect = [ { hook = "prerouting", verdict = "drop" } ]
 
 [[tests]]
-name = "Unauthorized WAN to VPN forwarding dropped"
+name = "unauthorized WAN to VPN forwarding dropped"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "203.0.113.50", dest_ip = "10.1.200.99", tcp = { source_port = 50016, dest_port = "http", flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]

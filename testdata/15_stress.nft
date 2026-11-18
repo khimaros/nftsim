@@ -1,29 +1,29 @@
 table inet filter {
-    # Stress testing ruleset - handles high connection volumes
+    # ruleset for high connection volume tests
     
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Allow outbound HTTP/HTTPS
+        # allow outbound HTTP/HTTPS
         iifname "eth0" oifname "eth1" tcp dport { 80, 443, 8080, 8443 } accept
         
-        # Allow DNS
+        # allow DNS
         iifname "eth0" oifname "eth1" udp dport 53 accept
         
-        # Allow ICMP
+        # allow ICMP
         iifname "eth0" oifname "eth1" icmp type echo-request accept
     }
     
     chain input {
         type filter hook input priority 0; policy drop;
         
-        # Allow loopback
+        # allow loopback
         iif lo accept
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
     }
     

@@ -1,6 +1,6 @@
-# Test suite 08: NAT (Network Address Translation)
+# test suite 08: NAT (network address translation)
 #
-# Tests SNAT (Source NAT / Masquerade) and DNAT (Destination NAT / Port Forwarding)
+# covers SNAT (source NAT / masquerade) and DNAT (destination NAT / port forwarding)
 
 [network]
 interfaces = [
@@ -15,9 +15,8 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test 1: SNAT with masquerade - Internal client accessing external server
 [[tests]]
-name = "SNAT Masquerade - Internal to External"
+name = "SNAT masquerade - internal to external"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
@@ -32,9 +31,8 @@ expect = [
   { hook = "forward", verdict = "accept", to_interface = "eth0" }
 ]
 
-# Test 2: Explicit SNAT - Different source network
 [[tests]]
-name = "Explicit SNAT - 10.0.0.0/24 to 203.0.113.5"
+name = "explicit SNAT - 10.0.0.0/24 to 203.0.113.5"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "10.0.0.50", dest_ip = "8.8.8.8", tcp = { source_port = 50000, dest_port = 443, flags = ["SYN"] } }
@@ -43,9 +41,9 @@ expect = [
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.5" }
 ]
 
-# Test 3: DNAT Port Forwarding - External request to public IP:80 -> Internal server:8080
+# external request to public IP:80 -> internal server:8080
 [[tests]]
-name = "DNAT Port Forward - External to Internal Server"
+name = "DNAT port forward - external to internal server"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "203.0.113.10", tcp = { source_port = 55000, dest_port = 80, flags = ["SYN"] } }
@@ -60,9 +58,8 @@ expect = [
   { hook = "forward", verdict = "accept", to_interface = "eth1" }
 ]
 
-# Test 4: UDP SNAT - DNS query from internal network
 [[tests]]
-name = "UDP SNAT - Internal DNS Query"
+name = "UDP SNAT - internal DNS query"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", udp = { source_port = 40000, dest_port = 53 } }
@@ -71,9 +68,8 @@ expect = [
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
 ]
 
-# Test 5: ICMP SNAT - Ping from internal network
 [[tests]]
-name = "ICMP SNAT - Internal Ping"
+name = "ICMP SNAT - internal ping"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.200", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
@@ -82,9 +78,9 @@ expect = [
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
 ]
 
-# Test 6: SNAT persistence - multiple packets from same connection
+# multiple packets from the same connection keep the same translation
 [[tests]]
-name = "SNAT Persistence - Connection Reuse"
+name = "SNAT persistence - connection reuse"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "1.1.1.1", tcp = { source_port = 35000, dest_port = 443, flags = ["SYN"] } }
@@ -106,9 +102,8 @@ expect = [
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
 ]
 
-# Test 7: Multiple internal hosts, different external translations
 [[tests]]
-name = "Multiple Hosts SNAT - Same Public IP"
+name = "multiple hosts SNAT - same public IP"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "8.8.8.8", tcp = { source_port = 50001, dest_port = 80, flags = ["SYN"] } }
@@ -131,9 +126,8 @@ expect = [
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
 ]
 
-# Test 8: DNAT with established connection
 [[tests]]
-name = "DNAT Established Connection"
+name = "DNAT established connection"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "5.6.7.8", dest_ip = "203.0.113.10", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
@@ -154,9 +148,9 @@ expect = [
   { hook = "forward", verdict = "accept", to_interface = "eth0" }
 ]
 
-# Test 9: Bidirectional NAT - SNAT and DNAT on same packet flow
+# SNAT and DNAT on the same packet flow
 [[tests]]
-name = "Bidirectional NAT - SNAT + DNAT"
+name = "bidirectional NAT - SNAT + DNAT"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "9.10.11.12", dest_ip = "203.0.113.10", tcp = { source_port = 55500, dest_port = 80, flags = ["SYN"] } }

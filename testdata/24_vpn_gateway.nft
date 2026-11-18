@@ -11,19 +11,19 @@ define vpn_dev = { "wg0" }
 define vpn_net = { 10.1.200.0/24 }
 define vpn_net6 = { 2001:db8:200::1/80 }
 
-define peer_hermes = { 10.1.200.1, 10.1.200.150 }
-define peer_aether = { 10.1.200.50 }
-define peer_deimos = { 10.1.200.115 }
-define peer_echo = { 10.1.200.135 }
-define peer_nemesis = { 10.1.200.155 }
-define peer_kodi_lr = { 10.1.200.170 }
-define peer_kiste = { 10.1.200.225 }
-define peer_ares = { 10.1.200.230 }
-define peer_perseus = { 10.1.200.240 }
+define peer_alpha = { 10.1.200.1, 10.1.200.150 }
+define peer_bravo = { 10.1.200.50 }
+define peer_charlie = { 10.1.200.115 }
+define peer_delta = { 10.1.200.135 }
+define peer_foxtrot = { 10.1.200.155 }
+define peer_golf = { 10.1.200.170 }
+define peer_hotel = { 10.1.200.225 }
+define peer_india = { 10.1.200.230 }
+define peer_juliet = { 10.1.200.240 }
 
-define peer6_hermes = { 2001:db8:200::150/128 }
-define peer6_ares = { 2001:db8:200::230/128 }
-define peer6_perseus = { 2001:db8:200::240/128 }
+define peer6_alpha = { 2001:db8:200::150/128 }
+define peer6_india = { 2001:db8:200::230/128 }
+define peer6_juliet = { 2001:db8:200::240/128 }
 
 table inet filter {
 	chain INPUT {
@@ -32,7 +32,7 @@ table inet filter {
 		# accept all loopback packets
 		iif "lo" accept
 
-		# accept all icmp/icmpv6 packets
+		# accept all ICMP/ICMPv6 packets
 		meta l4proto { icmp, ipv6-icmp } counter accept
 
 		# accept packets that are part of an established connection
@@ -41,27 +41,27 @@ table inet filter {
 		# accept all DHCPv6 packets received at a link-local address
 		ip6 daddr fe80::/64 udp dport dhcpv6-client counter accept
 
-		# expose openssh server to wan and vpn
+		# expose OpenSSH server to WAN and VPN
 		iifname $wan_dev tcp dport 22 counter accept
 		iifname $vpn_dev tcp dport 22 counter accept
 
-		# expose bind9 server to vpn
+		# expose DNS resolver to VPN
 		iifname $vpn_dev udp dport 53 counter accept
 		iifname $vpn_dev tcp dport 53 counter accept
 
-		# expose wireguard server to wan
+		# expose WireGuard server to WAN
 		iifname $wan_dev udp dport 51820 counter accept
 
-		# expose iperf server to vpn
+		# expose iperf server to VPN
 		iifname $vpn_dev tcp dport 5201 counter accept
 
-		# expose netdata server to some vpn peers
-		#iifname $vpn_dev ip saddr $peer_perseus tcp dport 19999 counter accept
+		# expose metrics exporter to some VPN peers
+		#iifname $vpn_dev ip saddr $peer_juliet tcp dport 9100 counter accept
 
-		# expose wireguard-proxy to wan
+		# expose HTTPS reverse proxy to WAN
 		iifname $wan_dev tcp dport 443 counter accept
 
-		# reject all other vpn traffic
+		# reject all other VPN traffic
 		iifname $vpn_dev counter reject
 
 		# drop everything else
@@ -72,77 +72,77 @@ table inet filter {
 	chain FORWARD {
 		type filter hook forward priority filter; policy drop;
 
-		# accept all icmp/icmpv6 packets
+		# accept all ICMP/ICMPv6 packets
 		meta l4proto { icmp, ipv6-icmp } counter accept
 
 		# accept packets that are part of an established connection
 	        ct state established,related counter accept
 
-		# forward all traffic from specific vpn peers to any wan peer
+		# forward all traffic from specific VPN peers to any WAN peer
 		# NOTE: requires matching rule in inet nat POSTROUTING
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_aether counter accept
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_deimos counter accept
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_perseus counter accept
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_ares counter accept
-		# FIXME: this is only necessary because AllowedIps is not honored by LibreELEC
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_kodi_lr counter accept
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_bravo counter accept
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_charlie counter accept
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_juliet counter accept
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_india counter accept
+		# FIXME: this is only necessary because this peer ignores AllowedIPs
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_golf counter accept
 
-		# forward all ipv6 traffic from specific vpn peers to any wan peer
+		# forward all IPv6 traffic from specific VPN peers to any WAN peer
 		# NOTE: requires matching rule in inet nat POSTROUTING
-		iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_ares counter accept
-		#iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_perseus counter accept
+		iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_india counter accept
+		#iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_juliet counter accept
 
-		# forward all traffic from vpn to wan (LESS SECURE!)
-		# NOTE: this is only relevant for ipv6 clients
+		# forward all traffic from VPN to WAN (LESS SECURE!)
+		# NOTE: this is only relevant for IPv6 clients
 		#iifname $vpn_dev oifname $wan_dev counter accept
 
-		# forward vpn traffic from specific vpn peer to specific vpn peer:port
-		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_echo ip daddr $peer_kiste tcp dport 443 counter accept
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_echo ip daddr $peer_kiste tcp dport 80 counter accept
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_ares ip daddr $peer_kodi_lr tcp dport 8080 counter accept
+		# forward VPN traffic from specific VPN peer to specific VPN peer:port
+		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_delta ip daddr $peer_hotel tcp dport 443 counter accept
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_delta ip daddr $peer_hotel tcp dport 80 counter accept
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_india ip daddr $peer_golf tcp dport 8080 counter accept
 
-		# forward vpn traffic between specific vpn peers
-		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_ares ip daddr $peer_aether counter accept
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_ares ip daddr $peer_deimos counter accept
-		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_perseus ip daddr $peer_nemesis counter accept
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_ares ip daddr $peer_kodi_lr counter accept
+		# forward VPN traffic between specific VPN peers
+		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_india ip daddr $peer_bravo counter accept
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_india ip daddr $peer_charlie counter accept
+		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_juliet ip daddr $peer_foxtrot counter accept
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_india ip daddr $peer_golf counter accept
 
-		# forward vpn traffic from any vpn peer to specific vpn peer:port
-		# FIXME: deimos 443 is a pretty large attack vector
-		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_deimos tcp dport 443 counter accept
-		#iifname $vpn_dev oifname $vpn_dev ip daddr $peer_deimos tcp dport 139 counter accept  # samba
-		#iifname $vpn_dev oifname $vpn_dev ip daddr $peer_deimos tcp dport 445 counter accept  # samba
-		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_deimos tcp dport 8096 counter accept  # jellyfin
-		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_deimos tcp dport 51413 counter accept  # syncthing
-		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_nemesis tcp dport 22 counter accept  # ssh/borgbackup
+		# forward VPN traffic from any VPN peer to specific VPN peer:port
+		# FIXME: charlie 443 is a pretty large attack vector
+		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_charlie tcp dport 443 counter accept
+		#iifname $vpn_dev oifname $vpn_dev ip daddr $peer_charlie tcp dport 139 counter accept  # samba
+		#iifname $vpn_dev oifname $vpn_dev ip daddr $peer_charlie tcp dport 445 counter accept  # samba
+		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_charlie tcp dport 3000 counter accept  # wiki
+		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_charlie tcp dport 4242 counter accept  # game server
+		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_foxtrot tcp dport 22 counter accept  # SSH/backups
 
-		# forward vpn traffic from any vpn peer to specific vpn peers
-		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_hermes counter accept
-		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_echo counter accept
+		# forward VPN traffic from any VPN peer to specific VPN peers
+		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_alpha counter accept
+		iifname $vpn_dev oifname $vpn_dev ip daddr $peer_delta counter accept
 
-		# forward vpn traffic from specific peers to any peer
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_hermes counter accept
-		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_aether counter accept
-		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_deimos counter accept
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_ares counter accept
-		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_perseus counter accept
+		# forward VPN traffic from specific peers to any peer
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_alpha counter accept
+		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_bravo counter accept
+		#iifname $vpn_dev oifname $vpn_dev ip saddr $peer_charlie counter accept
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_india counter accept
+		iifname $vpn_dev oifname $vpn_dev ip saddr $peer_juliet counter accept
 
-		# forward vpn traffic between any peers (LESS SECURE!)
+		# forward VPN traffic between any peers (LESS SECURE!)
 		#iifname $vpn_dev oifname $vpn_dev counter accept
 
-		# forward specific ports from wan to ipv6 vpn peers
-		#iifname $wan_dev oifname $vpn_dev ip6 daddr 2a01:4ff:1f0:e308:200::240 tcp dport 22 counter accept
+		# forward specific ports from WAN to IPv6 VPN peers
+		#iifname $wan_dev oifname $vpn_dev ip6 daddr 2001:db8:200::240 tcp dport 22 counter accept
 
-		# forward all traffic from wan to vpn peers (DANGEROUS!)
-		# NOTE: this is only relevant for ipv6 peers
+		# forward all traffic from WAN to VPN peers (DANGEROUS!)
+		# NOTE: this is only relevant for IPv6 peers
 		#iifname $wan_dev oifname $vpn_dev counter accept
 
-		# reject all other traffic from vpn peers
+		# reject all other traffic from VPN peers
 		iifname $vpn_dev counter reject
 
-		# forward traffic from wan to specific peer:port
+		# forward traffic from WAN to specific peer:port
 		# NOTE: requires corresponding rules in POSTROUTING and PREROUTING
-		iifname $wan_dev oifname $vpn_dev ip daddr $peer_deimos tcp dport 51413 counter accept
+		iifname $wan_dev oifname $vpn_dev ip daddr $peer_charlie tcp dport 4242 counter accept
 
 		# drop and count everything else
 		iifname $wan_dev oifname $vpn_dev counter drop
@@ -169,29 +169,29 @@ table inet nat {
 		# drop packets in "invalid" connection-tracking state
 		ct state invalid counter drop
 
-		# masquerade specific ipv4 vpn peer traffic to the internet
+		# masquerade specific IPv4 VPN peer traffic to the internet
 		# NOTE: requires matching rule in inet filter FORWARD
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_aether counter masquerade
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_deimos counter masquerade
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_ares counter masquerade
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_perseus counter masquerade
-		iifname $vpn_dev oifname $wan_dev ip saddr $peer_kodi_lr counter masquerade
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_bravo counter masquerade
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_charlie counter masquerade
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_india counter masquerade
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_juliet counter masquerade
+		iifname $vpn_dev oifname $wan_dev ip saddr $peer_golf counter masquerade
 
-		# masquerade all ipv4 vpn peer traffic to the internet (LESS SECURE!)
+		# masquerade all IPv4 VPN peer traffic to the internet (LESS SECURE!)
 		#iifname $vpn_dev oifname $wan_dev ip saddr $vpn_net counter masquerade
 
-		# masquerade specific ipv6 vpn peer traffic to the internet
+		# masquerade specific IPv6 VPN peer traffic to the internet
 		# comment this out to expose the assigned VPN address to the public
 		# NOTE: requires matching rule in inet filter FORWARD
-		iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_ares counter masquerade
-		#iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_perseus counter masquerade
+		iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_india counter masquerade
+		#iifname $vpn_dev oifname $wan_dev ip6 saddr $peer6_juliet counter masquerade
 
-		# masquerade all ipv6 vpn peer traffic to the internet (LESS SECURE!)
+		# masquerade all IPv6 VPN peer traffic to the internet (LESS SECURE!)
 		# comment this out to expose the assigned VPN address to the public
 		# NOTE: requires matching rule in inet filter FORWARD
 		#iifname $vpn_dev oifname $wan_dev ip6 saddr $vpn_net6 counter masquerade
 
-		# track all other routed traffic from vpn
+		# track all other routed traffic from VPN
 		iifname $vpn_dev oifname $wan_dev counter return
 	}
 }
@@ -200,15 +200,15 @@ table ip nat {
 	chain PREROUTING {
 		type nat hook prerouting priority dstnat; policy accept;
 
-		# accept all icmp/icmpv6 packets
+		# accept all ICMP/ICMPv6 packets
 		meta l4proto { icmp, ipv6-icmp } counter accept
 
 		# accept packets that are part of an established connection
 	        ct state established,related counter accept
 
-                # forward ports to another vpn host
+                # forward ports to another VPN host
                 # NOTE: requires matching rule in ip nat POSTROUTING
-                tcp dport 51413 counter dnat to $peer_deimos:51413
+                tcp dport 4242 counter dnat to $peer_charlie:4242
 	}
 
 	chain OUTPUT {
@@ -223,7 +223,7 @@ table ip nat {
 
                 # required to support port forwarding
                 # NOTE: requires matching rule in ip nat PREROUTING
-                meta l4proto tcp ip daddr $peer_deimos tcp dport 51413 counter masquerade
+                meta l4proto tcp ip daddr $peer_charlie tcp dport 4242 counter masquerade
 	}
 }
 

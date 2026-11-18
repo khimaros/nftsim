@@ -14,7 +14,7 @@ table inet filter {
                 # accept all loopback packets
                 iif "lo" accept
 
-                # accept all icmp/icmpv6 packets
+                # accept all ICMP/ICMPv6 packets
                 meta l4proto { icmp, ipv6-icmp } counter accept
 
                 # accept packets that are part of an established connection
@@ -23,23 +23,23 @@ table inet filter {
                 # accept all DHCPv6 packets received at a link-local address
                 ip6 daddr fe80::/64 udp dport dhcpv6-client counter accept
 
-                # expose openssh server to wan and vpn
+                # expose OpenSSH server to WAN and VPN
                 #iifname $wan_dev tcp dport 22 counter accept
                 #iifname $vpn_dev tcp dport 22 counter accept
 
-		# expose kodi server to vpn
-                #iifname $vpn_dev tcp dport 8080 counter accept
+		# expose print server to VPN
+                #iifname $vpn_dev tcp dport 631 counter accept
 
-		# expose wireguard-proxy on wan
+		# expose WireGuard on WAN
                 #iifname $wan_dev udp dport 51820 counter accept
 
-		# accept mdns resolutions
+		# accept mDNS resolutions
 		iifname $wan_dev udp dport 5353 counter accept
 		iifname $wan_dev tcp dport 5355 counter accept
 		iifname $wan_dev udp dport 5355 counter accept
 
-		# accept mavlink data
-		iifname $wan_dev udp dport 14550 counter accept
+		# accept RTP media streams
+		iifname $wan_dev udp dport 5004 counter accept
         }
 
 	chain FORWARD {

@@ -1,79 +1,99 @@
-# TOML Test Format Reference
+# TOML test format reference
 
-This document describes the TOML configuration format for defining nftsim test cases.
+this document describes the TOML configuration format for defining nftsim test cases.
 
-## Table of Contents
+## table of contents
 
-- [Overview](#overview)
-- [File Structure](#file-structure)
-- [Network Configuration](#network-configuration)
-- [Guest Setup](#guest-setup)
-- [Test Definitions](#test-definitions)
-- [Packet Specifications](#packet-specifications)
-- [Expectations](#expectations)
-- [Complete Examples](#complete-examples)
+- [overview](#overview)
+- [file structure](#file-structure)
+- [network configuration](#network-configuration)
+- [guest setup](#guest-setup)
+- [test definitions](#test-definitions)
+- [packet specifications](#packet-specifications)
+- [expectations](#expectations)
+- [complete examples](#complete-examples)
 
-## Overview
+## overview
 
-Each test suite consists of two files:
-- `testdata/NN_name.nft` - The nftables ruleset to test
-- `testdata/NN_name.toml` - Test configuration and test cases
+each test suite consists of two files:
+- `testdata/NN_name.nft` - the nftables ruleset to test
+- `testdata/NN_name.toml` - test configuration and test cases
 
-The TOML file defines the network topology, guest environment setup, and test cases with packet specifications and expectations.
+the TOML file defines the network topology, guest environment setup, and test cases with packet specifications and expectations.
 
-## File Structure
+## file structure
 
-A test configuration file has three main sections:
+a test configuration file has three main sections:
 
 ```toml
+# optional: the ruleset under test, relative to this file
+ruleset = "../etc/nftables.conf"
+
 [network]
-# Network topology: interfaces and routes
+# network topology: interfaces and routes
 
 [guest_setup]
-# Guest environment: sysctls, pre/post commands
+# guest environment: sysctls, pre/post commands
 
 [[tests]]
-# Test cases: packets and expectations
+# test cases: packets and expectations
 ```
 
-## Network Configuration
+with `ruleset` set, the suite runs on its own: `nftsim test suite.toml`. a
+ruleset given on the command line (`nftsim test rules.nft suite.toml`) takes
+precedence over it.
 
-### Interfaces
+## network configuration
 
-Define network interfaces with IP addresses (IPv4 or IPv6):
+### interfaces
+
+define network interfaces with one or more IP addresses (IPv4, IPv6 or both):
 
 ```toml
 [network]
 interfaces = [
   { name = "eth0", ip = "192.168.1.1/24" },
   { name = "eth1", ip = "10.0.0.1/24" },
-  { name = "eth2", ip = "2001:db8:1::1/64" },  # IPv6
+  { name = "eth2", ip = "2001:db8:1::1/64" },                       # IPv6
+  { name = "eth3", ips = ["203.0.113.10/24", "2001:db8:3::10/64"] },  # dual-stack
 ]
 ```
 
-**Fields:**
-- `name` (required): Interface name (e.g., "eth0", "eth1")
-- `ip` (required): IP address with CIDR notation (IPv4 or IPv6)
+**fields:**
+- `name` (required): interface name (e.g., "eth0", "eth1")
+- `ip`: one IP address with CIDR notation (IPv4 or IPv6)
+- `ips`: a list of IP addresses with CIDR notation, added after `ip`
 
-### Routes
+every interface needs at least one address from `ip` or `ips`. IPv6 addresses
+skip duplicate address detection, so they are usable as soon as the guest is up.
 
-Define static routes:
+every configured address counts as the guest's own: a packet whose
+`source_ip` is any of them is injected from inside the guest (OUTPUT hook).
+for masquerade, `src_nat` is checked against the address the kernel actually
+chose, read from the guest's conntrack table. on an interface with several
+addresses this is the one masquerade selects for the route (for example the
+address on the default gateway's subnet), and an IPv6 packet gets an IPv6
+address.
+
+### routes
+
+define static routes:
 
 ```toml
 routes = [
   { destination = "0.0.0.0/0", via = "10.0.0.2" },        # IPv4 default route
   { destination = "::/0", via = "2001:db8:2::2" },        # IPv6 default route
-  { destination = "192.168.0.0/16", via = "10.0.0.3" },   # Specific network
+  { destination = "192.168.0.0/16", via = "10.0.0.3" },   # specific network
 ]
 ```
 
-**Fields:**
-- `destination` (required): Destination network in CIDR notation
-- `via` (required): Gateway IP address
+**fields:**
+- `destination` (required): destination network in CIDR notation
+- `via` (required): gateway IP address
 
-## Guest Setup
+## guest setup
 
-Configure the UML guest environment:
+configure the UML guest environment:
 
 ```toml
 [guest_setup]
@@ -83,28 +103,33 @@ sysctls = {
   "net.ipv4.conf.all.rp_filter" = "0",
 }
 
-pre_commands = [
+pre_nft_commands = [
   "ip link set eth0 up",
   "echo 'Custom setup command'",
 ]
 
-post_commands = [
+post_nft_commands = [
   "nft list ruleset",
 ]
 ```
 
-**Fields:**
-- `sysctls` (optional): Key-value pairs of sysctl settings
-- `pre_commands` (optional): Shell commands to run before loading nftables rules
-- `post_commands` (optional): Shell commands to run after loading nftables rules
+**fields:**
+- `sysctls` (optional): key-value pairs of sysctl settings
+- `pre_nft_commands` (optional): shell commands to run before loading nftables rules
+- `post_nft_commands` (optional): shell commands to run after loading nftables rules
 
-## Test Definitions
+`pre_nft_commands` can stand in for tables other tools add at runtime (Docker,
+wg-quick) and can load the ruleset once (`nft -f /mnt/host/rules.nft`), so the
+harness's own load tests a reload over a live ruleset. traces report a verdict
+under the hook its base chain is attached to, whatever the chain is named.
 
-Tests are defined using TOML table arrays:
+## test definitions
+
+tests are defined using TOML table arrays:
 
 ```toml
 [[tests]]
-name = "Test Name"
+name = "test name"
 
 [[tests.packets]]
 packet = { ... }
@@ -115,22 +140,22 @@ packet = { ... }
 expect = [ ... ]
 ```
 
-**Test fields:**
-- `name` (required): Descriptive test name
+**test fields:**
+- `name` (required): descriptive test name
 
-**Packet fields:**
-- `packet` (required): Packet specification (see [Packet Specifications](#packet-specifications))
-- `expect` (required): Array of expectations (see [Expectations](#expectations))
+**packet fields:**
+- `packet` (required): packet specification (see [packet specifications](#packet-specifications))
+- `expect` (required): array of expectations (see [expectations](#expectations))
 
-## Packet Specifications
+## packet specifications
 
-All packets must specify:
-- `on_interface`: Interface name where packet enters/exits
-- `source_ip`: Source IP address (IPv4 or IPv6)
-- `dest_ip`: Destination IP address (IPv4 or IPv6)
-- Protocol-specific fields: `tcp`, `udp`, or `icmp`
+all packets must specify:
+- `on_interface`: interface name where the packet enters/exits
+- `source_ip`: source IP address (IPv4 or IPv6)
+- `dest_ip`: destination IP address (IPv4 or IPv6)
+- protocol-specific fields: `tcp`, `udp`, or `icmp`
 
-### TCP Packets
+### TCP packets
 
 ```toml
 packet = {
@@ -138,39 +163,39 @@ packet = {
   source_ip = "192.168.1.50",
   dest_ip = "8.8.8.8",
   tcp = {
-    source_port = 40000,           # Numeric port
-    dest_port = "http",            # Or named port ("http", "https", "ssh", etc.)
+    source_port = 40000,           # numeric port
+    dest_port = "http",            # or named port ("http", "https", "ssh", etc.)
     flags = ["SYN"],               # TCP flags
-    payload = [0x47, 0x45, 0x54]   # Optional payload data
+    payload = [0x47, 0x45, 0x54]   # optional payload data
   }
 }
 ```
 
 **TCP fields:**
-- `source_port` (required): Source port (number or name)
-- `dest_port` (required): Destination port (number or name)
-- `flags` (required): Array of TCP flags
-- `payload` (optional): Array of bytes for packet payload
+- `source_port` (required): source port (number or name)
+- `dest_port` (required): destination port (number or name)
+- `flags` (required): array of TCP flags
+- `payload` (optional): array of bytes for packet payload
 
-**Valid TCP flags:**
-- `"SYN"` - Synchronize
-- `"ACK"` - Acknowledgment
-- `"FIN"` - Finish
-- `"RST"` - Reset
-- `"PSH"` - Push
-- `"URG"` - Urgent
+**valid TCP flags:**
+- `"SYN"` - synchronize
+- `"ACK"` - acknowledgment
+- `"FIN"` - finish
+- `"RST"` - reset
+- `"PSH"` - push
+- `"URG"` - urgent
 
-**Common TCP flag combinations:**
+**common TCP flag combinations:**
 ```toml
-flags = ["SYN"]           # Connection initiation
-flags = ["SYN", "ACK"]    # Connection response
-flags = ["ACK"]           # Data transfer
-flags = ["FIN", "ACK"]    # Connection termination
-flags = ["RST"]           # Connection reset
+flags = ["SYN"]           # connection initiation
+flags = ["SYN", "ACK"]    # connection response
+flags = ["ACK"]           # data transfer
+flags = ["FIN", "ACK"]    # connection termination
+flags = ["RST"]           # connection reset
 flags = []                # NULL scan (no flags)
 ```
 
-### UDP Packets
+### UDP packets
 
 ```toml
 packet = {
@@ -180,17 +205,17 @@ packet = {
   udp = {
     source_port = 53000,
     dest_port = 53,
-    payload = [0x12, 0x34, 0x01, 0x00]  # Optional DNS query
+    payload = [0x12, 0x34, 0x01, 0x00]  # optional DNS query
   }
 }
 ```
 
 **UDP fields:**
-- `source_port` (required): Source port (number or name)
-- `dest_port` (required): Destination port (number or name)
-- `payload` (optional): Array of bytes for packet payload
+- `source_port` (required): source port (number or name)
+- `dest_port` (required): destination port (number or name)
+- `payload` (optional): array of bytes for packet payload
 
-### ICMP Packets
+### ICMP packets
 
 ```toml
 packet = {
@@ -198,11 +223,11 @@ packet = {
   source_ip = "192.168.1.50",
   dest_ip = "8.8.8.8",
   icmp = {
-    type = 8,                           # Numeric type
+    type = 8,                           # numeric type
     # OR
-    type = "echo-request",              # Named type
+    type = "echo-request",              # named type
     code = 0,
-    payload = [0x61, 0x62, 0x63, 0x64]  # Optional payload
+    payload = [0x61, 0x62, 0x63, 0x64]  # optional payload
   }
 }
 ```
@@ -210,38 +235,38 @@ packet = {
 **ICMP fields:**
 - `type` (required): ICMP type (number or name)
 - `code` (required): ICMP code
-- `payload` (optional): Array of bytes for packet payload
+- `payload` (optional): array of bytes for packet payload
 
-**Common ICMP types (IPv4):**
-- `0` or `"echo-reply"` - Echo reply (ping response)
-- `3` - Destination unreachable
-- `8` or `"echo-request"` - Echo request (ping)
-- `11` - Time exceeded
+**common ICMP types (IPv4):**
+- `0` or `"echo-reply"` - echo reply (ping response)
+- `3` - destination unreachable
+- `8` or `"echo-request"` - echo request (ping)
+- `11` - time exceeded
 
 **IPv6 ICMP type auto-translation:**
 
-When using IPv6 addresses, nftsim automatically translates ICMPv4 types to ICMPv6:
-- Type `8` (echo-request) → Type `128` (ICMPv6 echo-request)
-- Type `0` (echo-reply) → Type `129` (ICMPv6 echo-reply)
+when using IPv6 addresses, nftsim translates ICMPv4 types to ICMPv6:
+- type `8` (echo-request) -> type `128` (ICMPv6 echo-request)
+- type `0` (echo-reply) -> type `129` (ICMPv6 echo-reply)
 
-You can use either numeric types or named types like `"echo-request"` which work for both IPv4 and IPv6.
+named types like `"echo-request"` work for both IPv4 and IPv6, as do numeric types.
 
-### Payload Data
+### payload data
 
-All protocols support optional payload data as an array of bytes:
+all protocols support optional payload data as an array of bytes:
 
 ```toml
 # ASCII text "GET /"
 payload = [0x47, 0x45, 0x54, 0x20, 0x2f]
 
-# Binary data
+# binary data
 payload = [0x16, 0x03, 0x01, 0x00, 0x05]
 
 # DNS query header
 payload = [0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 ```
 
-### IPv6 Packets
+### IPv6 packets
 
 IPv6 packets use the same format as IPv4, but with IPv6 addresses:
 
@@ -254,13 +279,13 @@ packet = {
 }
 ```
 
-IPv6 is auto-detected from address format. No special configuration needed.
+IPv6 is detected from the address format, so it needs no special configuration.
 
-## Expectations
+## expectations
 
-Expectations validate packet behavior through nftables hooks. Each expectation specifies a hook and verdict, with optional additional validations.
+expectations validate packet behavior through nftables hooks. each expectation specifies a hook and verdict, with optional additional validations.
 
-### Basic Structure
+### basic structure
 
 ```toml
 expect = [
@@ -268,53 +293,53 @@ expect = [
 ]
 ```
 
-### Hooks
+### hooks
 
-Packets traverse different nftables hooks depending on their path:
+packets traverse different nftables hooks depending on their path:
 
-- **`prerouting`** - Before routing decision (used for DNAT)
-- **`input`** - Packets destined to the firewall itself
-- **`forward`** - Packets being forwarded between interfaces
-- **`output`** - Packets originating from the firewall (requires guest injection)
-- **`postrouting`** - After routing decision (used for SNAT)
+- **`prerouting`** - before the routing decision (used for DNAT)
+- **`input`** - packets destined to the firewall itself
+- **`forward`** - packets being forwarded between interfaces
+- **`output`** - packets originating from the firewall (requires guest injection)
+- **`postrouting`** - after the routing decision (used for SNAT)
 
-**Hook inference:**
+**hook inference:**
 
-If `hook` is omitted, nftsim infers it from `to_interface`:
-- With `to_interface`: Assumed `forward` hook
-- Without `to_interface`: Assumed `input` hook
+if `hook` is omitted, nftsim infers it from `to_interface`:
+- with `to_interface`: `forward` hook
+- without `to_interface`: `input` hook
 
 ```toml
-# Explicit hook
+# explicit hook
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Inferred forward hook (same as above)
+# inferred forward hook (same as above)
 expect = [ { verdict = "accept", to_interface = "eth1" } ]
 
-# Inferred input hook (packet to firewall itself)
+# inferred input hook (packet to firewall itself)
 expect = [ { verdict = "accept" } ]
 ```
 
-### Verdicts
+### verdicts
 
-- **`accept`** - Packet is accepted
-- **`drop`** - Packet is silently dropped
-- **`reject`** - Packet is rejected (ICMP error sent)
+- **`accept`** - packet is accepted
+- **`drop`** - packet is silently dropped
+- **`reject`** - packet is rejected (ICMP error sent)
 
 ```toml
-# Accept packet
+# accept packet
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Drop packet
+# drop packet
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Reject packet
+# reject packet
 expect = [ { hook = "forward", verdict = "reject" } ]
 ```
 
-### Interface Validation
+### interface validation
 
-For forwarded packets, specify the expected output interface:
+for forwarded packets, specify the expected output interface:
 
 ```toml
 expect = [
@@ -322,11 +347,11 @@ expect = [
 ]
 ```
 
-### NAT Validation
+### NAT validation
 
-#### Source NAT (SNAT/Masquerade)
+#### source NAT (SNAT/masquerade)
 
-Validate that a packet's source IP is translated:
+validate that a packet's source IP is translated:
 
 ```toml
 expect = [
@@ -335,13 +360,13 @@ expect = [
 ]
 ```
 
-**Fields:**
+**fields:**
 - `hook = "postrouting"` (required for SNAT)
-- `src_nat` (required): Expected source IP after translation
+- `src_nat` (required): expected source IP after translation
 
-#### Destination NAT (DNAT/Port Forwarding)
+#### destination NAT (DNAT/port forwarding)
 
-Validate that a packet's destination IP is translated:
+validate that a packet's destination IP is translated:
 
 ```toml
 expect = [
@@ -350,70 +375,70 @@ expect = [
 ]
 ```
 
-**Fields:**
+**fields:**
 - `hook = "prerouting"` (required for DNAT)
-- `dst_nat` (required): Expected destination IP after translation
+- `dst_nat` (required): expected destination IP after translation
 
-#### Bidirectional NAT
+#### bidirectional NAT
 
-Test both SNAT and DNAT on the same packet flow:
+test both SNAT and DNAT on the same packet flow:
 
 ```toml
-# Inbound packet (DNAT)
+# inbound packet (DNAT)
 expect = [
   { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.50" },
   { hook = "forward", verdict = "accept", to_interface = "eth0" }
 ]
 
-# Outbound packet (SNAT)
+# outbound packet (SNAT)
 expect = [
   { hook = "forward", verdict = "accept", to_interface = "eth1" },
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
 ]
 ```
 
-### Multiple Expectations
+### multiple expectations
 
-A single packet can have multiple expectations to validate different hooks:
+a single packet can have multiple expectations to validate different hooks:
 
 ```toml
-# Packet that gets SNAT'd
+# packet that gets SNAT'd
 expect = [
   { hook = "forward", verdict = "accept", to_interface = "eth1" },
   { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
 ]
 
-# Packet that gets DNAT'd
+# packet that gets DNAT'd
 expect = [
   { hook = "prerouting", verdict = "accept", dst_nat = "192.168.1.50" },
   { hook = "forward", verdict = "accept", to_interface = "eth0" }
 ]
 ```
 
-### Guest Injection (OUTPUT Hook)
+### guest injection (OUTPUT hook)
 
-Packets with a firewall IP as source are automatically injected from the guest to test OUTPUT hooks:
+packets with a firewall IP as source are injected from the guest to test OUTPUT hooks:
 
 ```toml
-# This packet will be auto-injected from guest because source IP matches firewall interface
+# injected from the guest because the source IP matches a firewall interface
 packet = {
   on_interface = "eth1",
-  source_ip = "192.168.1.1",  # Matches firewall interface eth0
+  source_ip = "192.168.1.1",  # matches firewall interface eth0
   dest_ip = "8.8.8.8",
   tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] }
 }
 expect = [ { hook = "output", verdict = "accept" } ]
 ```
 
-## Complete Examples
+## complete examples
 
-### Example 1: Basic Firewall (2 Interfaces)
+### example 1: basic firewall (2 interfaces)
 
 ```toml
 [network]
 interfaces = [
-  { name = "eth0", ip = "192.168.1.1/24" },  # Internal
-  { name = "eth1", ip = "10.0.0.1/24" },     # External
+  { name = "eth0", ip = "192.168.1.1/24" },  # internal
+  { name = "eth1", ip = "10.0.0.1/24" },     # external
 ]
 
 routes = [
@@ -423,9 +448,8 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Allow internal to external HTTP
 [[tests]]
-name = "Internal to External HTTP - Allowed"
+name = "internal to external HTTP - allowed"
 
 [[tests.packets]]
 packet = {
@@ -436,9 +460,8 @@ packet = {
 }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Block external to internal
 [[tests]]
-name = "External to Internal - Blocked"
+name = "external to internal - blocked"
 
 [[tests.packets]]
 packet = {
@@ -450,7 +473,7 @@ packet = {
 expect = [ { hook = "forward", verdict = "drop" } ]
 ```
 
-### Example 2: NAT Gateway
+### example 2: NAT gateway
 
 ```toml
 [network]
@@ -468,7 +491,7 @@ sysctls = { "net.ipv4.ip_forward" = "1" }
 
 # SNAT (masquerade)
 [[tests]]
-name = "SNAT - Internal to External"
+name = "SNAT - internal to external"
 
 [[tests.packets]]
 packet = {
@@ -484,7 +507,7 @@ expect = [
 
 # DNAT (port forwarding)
 [[tests]]
-name = "DNAT - External to Internal Server"
+name = "DNAT - external to internal server"
 
 [[tests.packets]]
 packet = {
@@ -499,13 +522,13 @@ expect = [
 ]
 ```
 
-### Example 3: DMZ (3 Interfaces)
+### example 3: DMZ (3 interfaces)
 
 ```toml
 [network]
 interfaces = [
-  { name = "eth0", ip = "192.168.1.1/24" },   # Internal
-  { name = "eth1", ip = "203.0.113.10/24" },  # External
+  { name = "eth0", ip = "192.168.1.1/24" },   # internal
+  { name = "eth1", ip = "203.0.113.10/24" },  # external
   { name = "eth2", ip = "10.99.0.1/24" },     # DMZ
 ]
 
@@ -516,9 +539,8 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Internal to DMZ web server
 [[tests]]
-name = "Internal to DMZ Web - Allowed"
+name = "internal to DMZ web - allowed"
 
 [[tests.packets]]
 packet = {
@@ -529,9 +551,8 @@ packet = {
 }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth2" } ]
 
-# DMZ to internal - blocked
 [[tests]]
-name = "DMZ to Internal - Blocked"
+name = "DMZ to internal - blocked"
 
 [[tests.packets]]
 packet = {
@@ -543,7 +564,7 @@ packet = {
 expect = [ { hook = "forward", verdict = "drop" } ]
 ```
 
-### Example 4: IPv6 Firewall
+### example 4: IPv6 firewall
 
 ```toml
 [network]
@@ -559,9 +580,8 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv6.conf.all.forwarding" = "1" }
 
-# IPv6 TCP
 [[tests]]
-name = "IPv6 HTTPS Connection"
+name = "IPv6 HTTPS connection"
 
 [[tests.packets]]
 packet = {
@@ -572,9 +592,9 @@ packet = {
 }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# IPv6 ICMP (auto-translates type 8 → 128)
+# IPv6 ICMP (translates type 8 -> 128)
 [[tests]]
-name = "IPv6 Ping"
+name = "IPv6 ping"
 
 [[tests.packets]]
 packet = {
@@ -586,7 +606,7 @@ packet = {
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 ```
 
-### Example 5: Packet with Payload
+### example 5: packet with payload
 
 ```toml
 [network]
@@ -602,9 +622,8 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# TCP with HTTP payload
 [[tests]]
-name = "HTTP Request with Payload"
+name = "HTTP request with payload"
 
 [[tests.packets]]
 packet = {
@@ -620,9 +639,8 @@ packet = {
 }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# UDP with DNS query payload
 [[tests]]
-name = "DNS Query"
+name = "DNS query"
 
 [[tests.packets]]
 packet = {
@@ -637,9 +655,8 @@ packet = {
 }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# ICMP with payload
 [[tests]]
-name = "Ping with Payload"
+name = "ping with payload"
 
 [[tests.packets]]
 packet = {
@@ -655,7 +672,7 @@ packet = {
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 ```
 
-### Example 6: OUTPUT Hook (Guest Injection)
+### example 6: OUTPUT hook (guest injection)
 
 ```toml
 [network]
@@ -671,111 +688,111 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test OUTPUT hook - packet from firewall itself
+# packet from the firewall itself
 [[tests]]
-name = "OUTPUT - Firewall to Internet"
+name = "OUTPUT - firewall to internet"
 
 [[tests.packets]]
 packet = {
   on_interface = "eth1",
-  source_ip = "192.168.1.1",  # Firewall's own IP triggers guest injection
+  source_ip = "192.168.1.1",  # the firewall's own IP triggers guest injection
   dest_ip = "8.8.8.8",
   tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] }
 }
 expect = [ { hook = "output", verdict = "accept" } ]
 
-# Regular FORWARD test for comparison
+# regular FORWARD test for comparison
 [[tests]]
-name = "FORWARD - Internal to External"
+name = "FORWARD - internal to external"
 
 [[tests.packets]]
 packet = {
   on_interface = "eth0",
-  source_ip = "192.168.1.50",  # Different IP - uses host injection
+  source_ip = "192.168.1.50",  # a non-firewall IP uses host injection
   dest_ip = "8.8.8.8",
   tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] }
 }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 ```
 
-## Best Practices
+## best practices
 
-### Test Organization
+### test organization
 
-1. **Group related tests** - Keep similar tests together (e.g., all HTTP tests, all NAT tests)
-2. **Use descriptive names** - Test names should clearly indicate what's being tested
-3. **Order matters** - Place drop/reject tests BEFORE connection-establishing tests to avoid conntrack pollution
-4. **Use unique IP pairs** - Avoid conntrack state conflicts by using different IPs for different tests
+1. **group related tests** - keep similar tests together (e.g., all HTTP tests, all NAT tests)
+2. **use descriptive names** - test names should say what is being tested
+3. **order matters** - place drop/reject tests BEFORE connection-establishing tests to avoid conntrack pollution
+4. **use unique IP pairs** - avoid conntrack state conflicts by using different IPs for different tests
 
-### Conntrack State Management
+### conntrack state management
 
-Connection tracking state persists across tests. To avoid conflicts:
+connection tracking state persists across tests. to avoid conflicts:
 
 ```toml
-# WRONG: Drop test after established connection
+# WRONG: drop test after established connection
 [[tests]]
-name = "Allow Connection"
+name = "allow connection"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { verdict = "accept", to_interface = "eth1" } ]
 
 [[tests]]
-name = "Drop Same IP Later"  # Will likely fail due to conntrack state
+name = "drop same IP later"  # will likely fail due to conntrack state
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 25, flags = ["SYN"] } }
 expect = [ { verdict = "drop" } ]
 
-# RIGHT: Use different IPs or reorder tests
+# RIGHT: use different IPs or reorder tests
 [[tests]]
-name = "Drop Connection"
+name = "drop connection"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.51", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 25, flags = ["SYN"] } }
 expect = [ { verdict = "drop" } ]
 
 [[tests]]
-name = "Allow Connection"
+name = "allow connection"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { verdict = "accept", to_interface = "eth1" } ]
 ```
 
-### Port Naming
+### port naming
 
-Use well-known port names for readability:
+use well-known port names for readability:
 
 ```toml
-# Named ports (preferred for common services)
+# named ports (preferred for common services)
 tcp = { source_port = 40000, dest_port = "http" }
 tcp = { source_port = 40000, dest_port = "https" }
 tcp = { source_port = 40000, dest_port = "ssh" }
 
-# Numeric ports (required for non-standard ports)
+# numeric ports (required for non-standard ports)
 tcp = { source_port = 40000, dest_port = 8080 }
 ```
 
-### ICMP Type Naming
+### ICMP type naming
 
-Use named types for clarity, especially with IPv6:
+use named types for clarity, especially with IPv6:
 
 ```toml
-# Named types (preferred, works for both IPv4 and IPv6)
+# named types (preferred, works for both IPv4 and IPv6)
 icmp = { type = "echo-request", code = 0 }
 icmp = { type = "echo-reply", code = 0 }
 
-# Numeric types (also supported)
-icmp = { type = 8, code = 0 }  # Auto-translates to 128 for IPv6
+# numeric types (also supported)
+icmp = { type = 8, code = 0 }  # translates to 128 for IPv6
 ```
 
-## See Also
+## see also
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Development workflow and debugging tips
-- [DESIGN.md](DESIGN.md) - Architecture and implementation details
-- [README.md](README.md) - Project overview and quick start
+- [CONTRIBUTING.md](CONTRIBUTING.md) - development workflow and debugging tips
+- [DESIGN.md](DESIGN.md) - architecture and implementation details
+- [README.md](README.md) - project overview and quick start
 
-For example test suites, see the `testdata/` directory:
-- `testdata/01_basics.toml` - Basic firewall tests
+for example test suites, see the `testdata/` directory:
+- `testdata/01_basics.toml` - basic firewall tests
 - `testdata/08_nat.toml` - NAT and port forwarding
 - `testdata/12_dmz.toml` - DMZ/3-zone firewall
 - `testdata/22_ipv6.toml` - IPv6 support
-- `testdata/21_payload.toml` - Payload data examples
+- `testdata/21_payload.toml` - payload data examples
 - `testdata/26_guest_injection.toml` - OUTPUT hook testing

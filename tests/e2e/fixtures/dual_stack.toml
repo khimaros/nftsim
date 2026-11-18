@@ -1,0 +1,41 @@
+# every interface carries an address of each family, the way real hosts do.
+# the WAN's first IPv4 address is not on the gateway's subnet, so masquerade
+# picks the second one, which only the kernel's own choice reveals
+ruleset = "dual_stack.nft"
+
+[network]
+interfaces = [
+  { name = "eth0", ips = ["198.51.100.10/24", "203.0.113.10/24", "2001:db8:1::10/64"] },
+  { name = "eth1", ip = "192.168.1.1/24", ips = ["2001:db8:2::1/64"] },
+]
+routes = [
+  { destination = "0.0.0.0/0", via = "203.0.113.1" },
+  { destination = "::/0", via = "2001:db8:1::1" },
+]
+
+[guest_setup]
+sysctls = { "net.ipv4.ip_forward" = "1", "net.ipv6.conf.all.forwarding" = "1" }
+
+[[tests]]
+name = "IPv4 LAN to internet masqueraded to the WAN address on the gateway's subnet"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "192.168.1.50", dest_ip = "192.0.2.7", tcp = { source_port = 40000, dest_port = 443, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" },
+]
+
+[[tests]]
+name = "IPv6 LAN to internet masqueraded to the IPv6 WAN address"
+[[tests.packets]]
+packet = { on_interface = "eth1", source_ip = "2001:db8:2::50", dest_ip = "2001:db8:ffff::7", tcp = { source_port = 40001, dest_port = 443, flags = ["SYN"] } }
+expect = [
+  { hook = "forward", verdict = "accept", to_interface = "eth0" },
+  { hook = "postrouting", verdict = "accept", src_nat = "2001:db8:1::10" },
+]
+
+[[tests]]
+name = "gateway's second address originates traffic from the guest"
+[[tests.packets]]
+packet = { on_interface = "eth0", source_ip = "2001:db8:1::10", dest_ip = "2001:db8:ffff::7", tcp = { source_port = 40002, dest_port = 443, flags = ["SYN"] } }
+expect = [ { hook = "output", verdict = "accept" } ]

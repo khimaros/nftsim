@@ -1,5 +1,5 @@
-# Test suite for guest-originated packet injection
-# This tests OUTPUT and INPUT hooks using automatic guest injection detection
+# test suite for guest-originated packet injection
+# covers OUTPUT and INPUT hooks using automatic guest injection detection
 
 [network]
 interfaces = [
@@ -14,7 +14,7 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test 1: OUTPUT hook - guest IP as source going to internet (should auto-inject from guest)
+# a guest IP as source should be injected from the guest
 [[tests]]
 name = "OUTPUT hook - HTTP from guest to internet"
 
@@ -22,7 +22,6 @@ name = "OUTPUT hook - HTTP from guest to internet"
 packet = { on_interface = "eth1", source_ip = "192.168.1.1", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "output", verdict = "accept" } ]
 
-# Test 2: OUTPUT hook - ICMP from guest (should auto-inject from guest)
 [[tests]]
 name = "OUTPUT hook - ICMP from guest to internet"
 
@@ -30,9 +29,9 @@ name = "OUTPUT hook - ICMP from guest to internet"
 packet = { on_interface = "eth1", source_ip = "192.168.1.1", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
 expect = [ { hook = "output", verdict = "accept" } ]
 
-# Test 3: Regular FORWARD hook test (should use host injection - NOT guest)
+# forwarded traffic should use host injection, NOT guest injection
 [[tests]]
-name = "FORWARD hook - Internal to external (host injection)"
+name = "FORWARD hook - internal to external (host injection)"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }

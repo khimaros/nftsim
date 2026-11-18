@@ -1,5 +1,5 @@
-# Laptop firewall tests
-# Tests simple laptop/workstation firewall with selective service access
+# laptop firewall tests
+# simple laptop/workstation firewall with selective service access
 
 [network]
 interfaces = [
@@ -15,7 +15,7 @@ routes = [
 [guest_setup]
 sysctls = {}
 
-# ===== INPUT CHAIN TESTS =====
+# ===== INPUT chain tests =====
 
 [[tests]]
 name = "ICMP to laptop accepted"
@@ -42,9 +42,9 @@ packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192
 expect = [ { hook = "input", verdict = "accept" } ]
 
 [[tests]]
-name = "MAVLink data accepted (UDP 14550)"
+name = "RTP stream accepted (UDP 5004)"
 [[tests.packets]]
-packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", udp = { source_port = 54000, dest_port = 14550 } }
+packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", udp = { source_port = 54000, dest_port = 5004 } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
 [[tests]]
@@ -60,9 +60,9 @@ packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Kodi from VPN dropped (commented out in rules)"
+name = "print server from VPN dropped (commented out in rules)"
 [[tests.packets]]
-packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 57000, dest_port = 8080, flags = ["SYN"] } }
+packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 57000, dest_port = 631, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
@@ -72,24 +72,24 @@ packet = { on_interface = "wlp170s0", source_ip = "203.0.113.50", dest_ip = "192
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Random port from WAN dropped"
+name = "random port from WAN dropped"
 [[tests.packets]]
 packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 59000, dest_port = 9999, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Random port from VPN0 dropped"
+name = "random port from VPN0 dropped"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 60000, dest_port = 7777, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Random port from VPN1 dropped"
+name = "random port from VPN1 dropped"
 [[tests.packets]]
 packet = { on_interface = "wg1", source_ip = "10.1.201.50", dest_ip = "10.1.201.170", tcp = { source_port = 61000, dest_port = 6666, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# ===== SENSITIVE PORT TESTS - DATABASE SERVICES =====
+# ===== sensitive port tests - database services =====
 
 [[tests]]
 name = "MySQL from LAN dropped (port 3306)"
@@ -115,7 +115,7 @@ name = "PostgreSQL from VPN dropped (port 5432)"
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61004, dest_port = 5432, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# ===== SENSITIVE PORT TESTS - REMOTE ADMIN/MANAGEMENT =====
+# ===== sensitive port tests - remote admin/management =====
 
 [[tests]]
 name = "RDP from LAN dropped (port 3389)"
@@ -166,18 +166,18 @@ packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Telnet from LAN dropped (port 23)"
+name = "telnet from LAN dropped (port 23)"
 [[tests.packets]]
 packet = { on_interface = "wlp170s0", source_ip = "192.168.1.50", dest_ip = "192.168.1.100", tcp = { source_port = 61017, dest_port = 23, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
 [[tests]]
-name = "Telnet from VPN dropped (port 23)"
+name = "telnet from VPN dropped (port 23)"
 [[tests.packets]]
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61018, dest_port = 23, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# ===== SENSITIVE PORT TESTS - CONTAINER/ORCHESTRATION =====
+# ===== sensitive port tests - container/orchestration =====
 
 [[tests]]
 name = "Docker API from LAN dropped (port 2375)"
@@ -203,17 +203,17 @@ name = "Docker API TLS from VPN dropped (port 2376)"
 packet = { on_interface = "wg0", source_ip = "10.1.200.50", dest_ip = "10.1.200.170", tcp = { source_port = 61022, dest_port = 2376, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# ===== FORWARD AND OUTPUT CHAIN TESTS =====
-# Note: FORWARD and OUTPUT chains have no rules (default policy applies)
+# ===== FORWARD and OUTPUT chain tests =====
+# FORWARD and OUTPUT chains have no rules, so the default policy applies
 
 [[tests]]
-name = "Outbound HTTP accepted (default OUTPUT policy)"
+name = "outbound HTTP accepted (default OUTPUT policy)"
 [[tests.packets]]
 packet = { on_interface = "wlp170s0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 50001, dest_port = "http", flags = ["SYN"] } }
 expect = [ { hook = "output", verdict = "accept" } ]
 
 [[tests]]
-name = "Outbound HTTPS accepted (default OUTPUT policy)"
+name = "outbound HTTPS accepted (default OUTPUT policy)"
 [[tests.packets]]
 packet = { on_interface = "wlp170s0", source_ip = "192.168.1.100", dest_ip = "1.1.1.1", tcp = { source_port = 50002, dest_port = "https", flags = ["SYN"] } }
 expect = [ { hook = "output", verdict = "accept" } ]

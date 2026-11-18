@@ -1,5 +1,3 @@
-// src/main.rs
-
 mod cli;
 mod commands;
 mod config;
@@ -9,6 +7,7 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
 
+/// parse the command line and dispatch to the subcommand handler
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();

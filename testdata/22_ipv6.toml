@@ -1,5 +1,5 @@
-# Test suite 25: IPv6 Support
-# Tests IPv6 packet injection and firewall rules
+# test suite 22: IPv6 support
+# IPv6 packet injection and firewall rules
 
 [network]
 interfaces = [
@@ -14,41 +14,37 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv6.conf.all.forwarding" = "1" }
 
-# Test: IPv6 TCP connection
 [[tests]]
-name = "IPv6 TCP HTTPS Connection"
+name = "IPv6 TCP HTTPS connection"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "2001:db8:1::50", dest_ip = "2001:db8:8888::8888", tcp = { source_port = 50000, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test: IPv6 UDP DNS
 [[tests]]
-name = "IPv6 UDP DNS Query"
+name = "IPv6 UDP DNS query"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "2001:db8:1::50", dest_ip = "2001:db8:8888::53", udp = { source_port = 53000, dest_port = 53 } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test: IPv6 ICMP (ICMPv6) - using string type name
+# ICMPv6 using a string type name
 [[tests]]
-name = "IPv6 ICMP Echo Request"
+name = "IPv6 ICMP echo request"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "2001:db8:1::50", dest_ip = "2001:db8:8888::1", icmp = { type = "echo-request", code = 0 } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test: IPv6 blocked connection
 [[tests]]
-name = "IPv6 Blocked External to Internal"
+name = "IPv6 blocked external to internal"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "2001:db8:8888::bad", dest_ip = "2001:db8:1::50", tcp = { source_port = 12345, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test: IPv6 with payload
 [[tests]]
-name = "IPv6 TCP with Payload"
+name = "IPv6 TCP with payload"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "2001:db8:1::100", dest_ip = "2001:db8:8888::80", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"], payload = [0x47, 0x45, 0x54] } }

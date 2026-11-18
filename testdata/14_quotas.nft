@@ -1,5 +1,5 @@
 table inet filter {
-    # Counters and quotas for testing
+    # counters and quotas under test
     
     counter http_counter {}
     counter https_counter {}
@@ -12,32 +12,32 @@ table inet filter {
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Count all HTTP traffic
+        # count all HTTP traffic
         tcp dport 80 counter name http_counter accept
         
-        # Count all HTTPS traffic
+        # count all HTTPS traffic
         tcp dport 443 counter name https_counter accept
         
-        # Count ICMP
+        # count ICMP
         icmp type echo-request counter name icmp_counter accept
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Allow DNS
+        # allow DNS
         udp dport 53 accept
     }
     
     chain input {
         type filter hook input priority 0; policy drop;
         
-        # Allow loopback
+        # allow loopback
         iif lo accept
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Allow ICMP
+        # allow ICMP
         icmp type echo-request accept
     }
     

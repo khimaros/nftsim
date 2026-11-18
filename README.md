@@ -1,108 +1,124 @@
-# nftsim - nftables Simulation and Testing Tool
+# nftsim - nftables simulation and testing tool
 
-A high-fidelity, unprivileged simulation environment for testing nftables firewall rulesets.
+an unprivileged, high-fidelity simulation environment for testing nftables firewall rulesets.
 
-## Features
+## features
 
-- **Unprivileged Testing**: Runs User-Mode Linux (UML) without requiring root privileges for tests
-- **Comprehensive Protocol Support**: TCP, UDP, ICMP, IPv6 with payload data, proper checksums, and connection tracking
-- **NAT Validation**: SNAT, DNAT, masquerade with automatic verification
-- **Multi-Zone Firewalls**: Support for DMZ/3+ interface configurations
-- **Advanced nftables Features**: Sets, maps, counters, quotas, rate limiting
-- **Hybrid Validation**: Combines nftables trace output with packet capture for authoritative results
-- **Real-World Scenarios**: Docker hosts, VPN gateways, laptop firewalls with comprehensive test coverage
-- **321 Test Cases**: Across 26 comprehensive test suites
+- **unprivileged testing**: tests run in User-Mode Linux (UML) without root
+- **protocol support**: TCP, UDP, ICMP and IPv6 with payload data, correct checksums and connection tracking
+- **NAT validation**: SNAT, DNAT and masquerade are verified automatically
+- **multi-zone firewalls**: DMZ and other configurations with three or more interfaces
+- **dual-stack hosts**: interfaces can carry several addresses (`ips`), and masquerade is checked against the address the kernel actually chose
+- **nftables features**: sets, maps, counters, quotas, rate limiting
+- **trace-based validation**: verdicts, output interfaces and NAT come from nftables trace output
+- **real-world scenarios**: Docker hosts, VPN gateways and laptop firewalls
+- **321 test cases** across 26 test suites
 
-## Quick Start
+## quick start
 
-### Prerequisites
+### prerequisites
 
 - Rust toolchain (1.70+)
 - Linux kernel source (Debian: `apt-get install linux-source`)
-- Build tools: `debootstrap`, `make`, `gcc`, `flex`, `bison`, `bc`
-- Sudo access for bootstrap (mount, debootstrap operations)
+- build tools: `debootstrap`, `make`, `gcc`, `flex`, `bison`, `bc`
+- sudo access for bootstrap (mount and debootstrap)
 
-### Building
+### building
 
 ```bash
 cargo build --release
 ```
 
-### Bootstrap (One-Time Setup)
+### bootstrap (one-time setup)
 
-Build the custom UML kernel and create rootfs:
+build the custom UML kernel and create the rootfs:
 
 ```bash
 ./target/release/nftsim bootstrap
 
-# Or install and run from anywhere
+# or install and run from anywhere
 cargo install --path .
 nftsim bootstrap
 ```
 
-**What this does:**
-- Builds a custom UML kernel with all nftables features built-in (no modules)
-- Creates a 2GB Debian bookworm rootfs with required packages
-- Stores all artifacts in `$HOME/.local/share/nftsim/` (relocatable, not tied to source directory)
-- Caches kernel build in `$HOME/.local/share/nftsim/linux/` for fast incremental rebuilds
-- Caches debootstrap packages in `$HOME/.local/share/nftsim/rootfs-cache/` for fast rootfs recreation
-- Prompts for sudo only when needed (mount, debootstrap)
+bootstrap:
+- builds a custom UML kernel with every nftables feature built in (no modules)
+- creates a 2GB Debian bookworm rootfs with the required packages
+- caches the kernel build and debootstrap packages for fast rebuilds
+- prompts for sudo only when needed (mount, debootstrap)
 
-**Outputs:**
-- `$HOME/.local/share/nftsim/linux/linux` - Custom UML kernel binary
-- `$HOME/.local/share/nftsim/rootfs.img` - 2GB ext4 root filesystem
-- `$HOME/.local/share/nftsim/linux/` - Kernel source build directory with build artifacts
-- `$HOME/.local/share/nftsim/rootfs-cache/` - Debootstrap package cache
+all artifacts live in `$HOME/.local/share/nftsim/`, independent of the source directory:
+- `linux/linux` - custom UML kernel binary
+- `linux/` - kernel source and build directory
+- `rootfs.img` - 2GB ext4 root filesystem
+- `rootfs-cache/` - debootstrap package cache
 
-All build artifacts are stored in `$HOME/.local/share/nftsim/` (user-specific, relocatable).
+the kernel is rebuilt only when the embedded kernel.config changes or the binary is missing. bootstrap prompts before overwriting an existing rootfs.
 
-**Relocatable Binary:**
-- Resources (bootstrap.sh, harness.sh, kernel.config) are embedded in the binary
-- nftsim can be run from anywhere after `cargo install --path .`
-- No need to be in the source directory
+test runs never write to `rootfs.img`: each run keeps its guest's disk writes in a throwaway copy-on-write overlay, so several `nftsim test` runs can share the image at once.
 
-**Rebuilding:**
-- Kernel only rebuilds if embedded kernel.config changes or binary is missing
-- Rootfs creation prompts before overwriting existing image
+the resources (bootstrap.sh, harness.sh, kernel.config) are embedded in the binary, so nftsim runs from anywhere after `cargo install --path .`.
 
-### Running Tests
+### running tests
 
-#### Single Test Suite
+#### single test suite
 
 ```bash
 ./target/release/nftsim test testdata/01_basics.nft testdata/01_basics.toml
 ```
 
-#### All Test Suites
+a suite that names its ruleset (`ruleset = "..."`, see
+[TESTDATA.md](TESTDATA.md)) runs on its own:
+
+```bash
+nftsim test path/to/suite.toml
+```
+
+`nftsim test` exits non-zero when any test case fails. for wrappers (unittest,
+pytest, CI), `--report <path>` writes every case as JSON with the reason each
+failure happened:
+
+```json
+{
+  "total": 8, "passed": 7, "failed": 1,
+  "suites": [{
+    "config": "suite.toml", "ruleset": "nftables.conf",
+    "tests": [{ "name": "...", "passed": false,
+                "reason": "step 1: verdict: accept (expected drop) at PREROUTING hook ..." }]
+  }]
+}
+```
+
+#### all test suites
 
 ```bash
 ./test.sh
 ```
 
-#### Specific Test Suites
+#### specific test suites
 
 ```bash
 ./test.sh 01_basics 08_nat 22_ipv6
 ```
 
-## Test Coverage
+## test coverage
 
-nftsim includes **26 comprehensive test suites** with **321 test cases** covering:
-- Core firewall functionality (TCP, UDP, ICMP, IPv6)
-- NAT and port forwarding scenarios
-- Multi-zone firewalls (DMZ configurations)
-- Advanced nftables features (sets, maps, counters, quotas, rate limiting)
-- Real-world scenarios (Docker hosts, VPN gateways, laptop firewalls)
-- Edge cases and security validation
+the 26 test suites cover:
+- core firewall behavior (TCP, UDP, ICMP, IPv6)
+- NAT and port forwarding
+- multi-zone firewalls (DMZ)
+- sets, maps, counters, quotas and rate limiting
+- real-world scenarios (Docker hosts, VPN gateways, laptop firewalls)
+- edge cases and security checks
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete list of test suites and their descriptions.
+see [CONTRIBUTING.md](CONTRIBUTING.md) for the list of suites.
 
-## Writing Tests
+## writing tests
 
-Tests are defined using TOML configuration files. Here's a simple example:
+tests are defined in TOML files. a simple example:
 
 ```toml
-# Network topology
+# network topology
 [network]
 interfaces = [
   { name = "eth0", ip = "192.168.1.1/24" },
@@ -113,11 +129,11 @@ routes = [
   { destination = "0.0.0.0/0", via = "10.0.0.2" },
 ]
 
-# Guest setup
+# guest setup
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test case
+# test case
 [[tests]]
 name = "Allow HTTP from Internal to External"
 
@@ -133,40 +149,31 @@ expect = [
 ]
 ```
 
-For complete TOML format reference, examples, and best practices, see [TESTDATA.md](TESTDATA.md).
+see [TESTDATA.md](TESTDATA.md) for the full TOML format reference and examples.
 
-## How It Works
+## how it works
 
-1. **Socketpair Creation**: Unix socketpairs for each network interface
-2. **UML Launch**: Spawns User-Mode Linux with `fd` transport
-3. **Network Setup**: Configures interfaces, routes, sysctls in guest
-4. **Ruleset Loading**: Loads your nftables rules
-5. **Trace Enablement**: Enables `meta nftrace set 1` for verdict detection
-6. **Packet Injection**: Builds Ethernet/IP/TCP frames with proper checksums
-7. **Hybrid Validation**: Combines trace output (verdict) + socket capture (interface)
-8. **Result Display**: PASS/FAIL with detailed expectations
+1. **socketpairs**: one Unix socketpair per network interface
+2. **UML launch**: User-Mode Linux starts with the `fd` transport
+3. **network setup**: interfaces, routes and sysctls are configured in the guest
+4. **ruleset loading**: your nftables rules are loaded
+5. **tracing**: `meta nftrace set 1` is inserted into every chain
+6. **packet injection**: Ethernet/IP/TCP frames are built with correct checksums
+7. **validation**: trace output gives the verdict, output interface and NAT for each hook
+8. **results**: pass/fail for each test case, with the reason for each failure
 
-## Architecture
+## architecture
 
-- **Orchestrator**: Rust binary (`nftsim`) manages UML, injects packets, validates results
-- **UML Guest**: Isolated Linux kernel with your firewall rules
-- **Transport**: Unix socketpairs with `fd` transport (fully unprivileged)
-- **Validation**: Hybrid approach using nftables trace + packet capture
+- **orchestrator**: the Rust binary (`nftsim`) manages UML, injects packets and validates results
+- **UML guest**: an isolated Linux kernel running your firewall rules
+- **transport**: Unix socketpairs with the `fd` transport (fully unprivileged)
 
-See [DESIGN.md](DESIGN.md) for detailed architecture documentation.
+see [DESIGN.md](DESIGN.md) for the architecture and [ROADMAP.md](ROADMAP.md) for known limitations and planned work.
 
-For known limitations and planned improvements, see [ROADMAP.md](ROADMAP.md).
+## license
 
-## License
+see the LICENSE file.
 
-See LICENSE file for details.
+## contributing
 
-## Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- Development workflow and debugging tips
-- How to create custom tests
-- Code structure and key implementation details
-- Performance metrics and test output modes
-
-For architectural details, see [DESIGN.md](DESIGN.md).
+see [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, debugging tips, writing tests and code structure.

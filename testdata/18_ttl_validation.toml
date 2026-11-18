@@ -47,7 +47,7 @@ packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
 [[tests]]
-name = "Established connection with normal TTL"
+name = "established connection with normal TTL"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45100, dest_port = 80, flags = ["SYN"] } }

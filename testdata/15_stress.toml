@@ -1,6 +1,6 @@
-# Test suite 15: Stress Testing
+# test suite 15: stress testing
 #
-# Tests firewall behavior under high connection volumes
+# firewall behavior under high connection volumes
 
 [network]
 interfaces = [
@@ -15,9 +15,9 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test 1: Rapid sequential connections from single host
+# rapid sequential connections from a single host
 [[tests]]
-name = "Rapid Sequential - 10 Connections"
+name = "rapid sequential - 10 connections"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40001, dest_port = 80, flags = ["SYN"] } }
@@ -59,9 +59,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40010, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 2: Many hosts, single destination
 [[tests]]
-name = "Many Hosts - Single Destination (20 hosts)"
+name = "many hosts - single destination (20 hosts)"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "1.1.1.1", tcp = { source_port = 50000, dest_port = 443, flags = ["SYN"] } }
@@ -143,9 +142,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.29", dest_ip = "1.1.1.1", tcp = { source_port = 50000, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 3: Mixed protocols high volume
 [[tests]]
-name = "Mixed Protocols - High Volume (15 packets)"
+name = "mixed protocols - high volume (15 packets)"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 30001, dest_port = 80, flags = ["SYN"] } }

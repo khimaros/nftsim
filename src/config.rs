@@ -1,5 +1,3 @@
-// src/config.rs
-
 use pnet_packet::icmp::IcmpTypes;
 use pnet_packet::icmpv6::Icmpv6Types;
 use serde::Deserialize;
@@ -8,11 +6,23 @@ use std::collections::HashMap;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SimConfig {
+    /// ruleset under test, relative to this file, so `nftsim test suite.toml`
+    /// needs no ruleset argument
+    #[serde(default)]
+    pub ruleset: Option<std::path::PathBuf>,
     pub network: Network,
     #[serde(default)]
     pub guest_setup: GuestSetup,
     #[serde(rename = "tests")]
     pub test_cases: Vec<TestCase>,
+}
+
+impl SimConfig {
+    /// the suite's own ruleset, resolved against the directory of its file
+    pub fn ruleset_path(&self, config_path: &std::path::Path) -> Option<std::path::PathBuf> {
+        let ruleset = self.ruleset.as_ref()?;
+        Some(config_path.parent().unwrap_or(std::path::Path::new("")).join(ruleset))
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -24,11 +34,56 @@ pub struct Network {
     pub routes: Vec<Route>,
 }
 
+/// a guest interface and every address it carries; real hosts are dual-stack,
+/// so `ips` holds any number of addresses and `ip` stays as a shorthand
 #[derive(Debug, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "RawInterface")]
 pub struct Interface {
     pub name: String,
-    pub ip: String,
+    pub ips: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawInterface {
+    name: String,
+    #[serde(default)]
+    ip: Option<String>,
+    #[serde(default)]
+    ips: Vec<String>,
+}
+
+impl TryFrom<RawInterface> for Interface {
+    type Error = String;
+
+    fn try_from(raw: RawInterface) -> Result<Self, Self::Error> {
+        let ips: Vec<String> = raw.ip.into_iter().chain(raw.ips).collect();
+        if ips.is_empty() {
+            return Err(format!("interface {} needs `ip` or `ips`", raw.name));
+        }
+        Ok(Interface { name: raw.name, ips })
+    }
+}
+
+impl Interface {
+    /// configured addresses without their prefix length
+    pub fn addresses(&self) -> impl Iterator<Item = &str> {
+        self.ips.iter().map(|ip| ip.split('/').next().unwrap_or(ip))
+    }
+}
+
+/// true for IPv6 addresses, which always contain a colon
+pub fn is_ipv6(addr: &str) -> bool {
+    addr.contains(':')
+}
+
+/// compare two addresses by value, since one IPv6 address has many spellings
+/// (the kernel prints them expanded, test configs usually compress them)
+pub fn same_address(a: &str, b: &str) -> bool {
+    match (a.parse::<std::net::IpAddr>(), b.parse::<std::net::IpAddr>()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -121,25 +176,25 @@ pub struct Icmp {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Expectation {
-    /// The nftables verdict (accept, drop, reject)
+    /// the nftables verdict (accept, drop, reject)
     #[serde(deserialize_with = "deserialize_lowercase_verdict")]
     pub verdict: Verdict,
 
-    /// Which nftables hook processes this packet (prerouting, input, forward, output, postrouting)
-    /// If not specified, we infer: if to_interface is set -> forward hook, else -> input hook
+    /// which nftables hook processes this packet (prerouting, input, forward, output, postrouting).
+    /// when unset, it is forward if to_interface is set and input otherwise
     #[serde(default)]
     pub hook: Option<String>,
 
-    /// For forwarded packets: which interface the packet exits on
-    /// Setting this implies hook = "forward"
+    /// for forwarded packets: which interface the packet exits on.
+    /// setting this implies hook = "forward"
     #[serde(default)]
     pub to_interface: Option<String>,
 
-    /// Expected source NAT address (checked at postrouting)
+    /// expected source NAT address (checked at postrouting)
     #[serde(default)]
     pub src_nat: Option<String>,
 
-    /// Expected destination NAT address (checked at prerouting)
+    /// expected destination NAT address (checked at prerouting)
     #[serde(default)]
     pub dst_nat: Option<String>,
 }
@@ -151,6 +206,43 @@ pub enum Verdict {
     Reject,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    const SUITE: &str = "[network]\n[[tests]]\nname = \"t\"\npackets = []\n";
+
+    #[test]
+    fn suite_names_its_ruleset_relative_to_itself() {
+        let config: SimConfig = toml::from_str(&format!("ruleset = \"../etc/nftables.conf\"\n{}", SUITE)).unwrap();
+        assert_eq!(
+            config.ruleset_path(Path::new("/repo/tests/host.toml")),
+            Some(Path::new("/repo/tests/../etc/nftables.conf").to_path_buf())
+        );
+    }
+
+    #[test]
+    fn interface_merges_ip_shorthand_with_ips() {
+        let iface: Interface = toml::from_str("name = \"eth0\"\nip = \"192.0.2.1/24\"\nips = [\"2001:db8::1/64\"]").unwrap();
+        assert_eq!(iface.ips, ["192.0.2.1/24", "2001:db8::1/64"]);
+        assert_eq!(iface.addresses().collect::<Vec<_>>(), ["192.0.2.1", "2001:db8::1"]);
+    }
+
+    #[test]
+    fn interface_without_address_is_rejected() {
+        let err = toml::from_str::<Interface>("name = \"eth0\"").unwrap_err();
+        assert!(err.to_string().contains("interface eth0 needs `ip` or `ips`"), "{}", err);
+    }
+
+    #[test]
+    fn suite_without_ruleset_has_none() {
+        let config: SimConfig = toml::from_str(SUITE).unwrap();
+        assert_eq!(config.ruleset_path(Path::new("/repo/tests/host.toml")), None);
+    }
+}
+
+/// accept a verdict name in any letter case
 fn deserialize_lowercase_verdict<'de, D>(deserializer: D) -> Result<Verdict, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -167,6 +259,7 @@ where
     }
 }
 
+/// accept a port as a number or as a service name from /etc/services
 fn deserialize_port<'de, D>(deserializer: D) -> Result<u16, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -210,7 +303,6 @@ where
         where
             E: de::Error,
         {
-            // Try service name lookup using getservbyname
             unsafe {
                 let service_cstr = CString::new(value)
                     .map_err(|_| E::custom(format!("invalid service name: {}", value)))?;
@@ -231,6 +323,7 @@ where
     deserializer.deserialize_any(PortVisitor)
 }
 
+/// accept an ICMP type as a number or as an nftables ICMP/ICMPv6 type name
 fn deserialize_icmp_type<'de, D>(deserializer: D) -> Result<u8, D::Error>
 where
     D: serde::Deserializer<'de>,

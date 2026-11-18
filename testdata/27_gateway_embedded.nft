@@ -1,0 +1,66 @@
+#!/usr/sbin/nft -f
+
+# ! setup interface eth0 192.168.1.1/24
+# ! setup interface eth1 203.0.113.10/24
+# ! setup route 0.0.0.0/0 via 203.0.113.1
+# ! setup sysctl net.ipv4.ip_forward=1
+
+flush ruleset
+
+table inet filter {
+    chain prerouting {
+        type nat hook prerouting priority -100; policy accept;
+        
+        # DNAT: external requests to 203.0.113.10:80 -> internal server 192.168.1.50:8080
+        iifname "eth1" ip daddr 203.0.113.10 tcp dport 80 dnat to 192.168.1.50:8080
+    }
+    
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+        
+        # SNAT: internal network going out gets masqueraded
+        oifname "eth1" ip saddr 192.168.1.0/24 masquerade
+    }
+    
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        
+        # allow established/related (for NAT return traffic)
+        ct state established,related accept
+        
+        # allow traffic from internal to external
+        iifname "eth0" oifname "eth1" accept
+
+        # ! test "outbound HTTP (accepted & SNAT)"
+        # ! inject eth0 ip saddr 192.168.1.50 daddr 8.8.8.8 tcp sport 45000 dport 80 flags SYN
+        # ! expect accept oif eth1 snat 203.0.113.10
+        
+        # allow DNAT'd traffic
+        iifname "eth1" oifname "eth0" ct status dnat accept
+
+        # ! test "inbound SSH (dropped)"
+        # ! inject eth1 ip saddr 8.8.8.8 daddr 203.0.113.10 tcp sport 12345 dport 22 flags SYN
+        # ! expect drop
+    }
+    
+    chain input {
+        type filter hook input priority 0; policy drop;
+        
+        # allow loopback
+        iif lo accept
+        
+        # allow established/related
+        ct state established,related accept
+
+        # allow pings from internal network
+        iifname "eth0" ip protocol icmp accept
+
+        # ! test "internal ICMP (accepted)"
+        # ! inject eth0 ip saddr 192.168.1.100 daddr 192.168.1.1 icmp type echo-request
+        # ! expect accept
+    }
+    
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}

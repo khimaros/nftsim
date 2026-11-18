@@ -1,6 +1,6 @@
-# Test suite 13: nftables Sets and Maps
+# test suite 13: nftables sets and maps
 #
-# Tests set matching, interval sets, and maps
+# set matching, interval sets and maps
 
 [network]
 interfaces = [
@@ -15,9 +15,8 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test 1: Traffic from blocked IP - dropped
 [[tests]]
-name = "Blocked IP Set - Traffic Dropped"
+name = "blocked IP set - traffic dropped"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "192.168.1.50", tcp = { source_port = 50000, dest_port = 80, flags = ["SYN"] } }
@@ -31,41 +30,36 @@ expect = [ { hook = "forward", verdict = "drop" } ]
 packet = { on_interface = "eth1", source_ip = "9.10.11.12", dest_ip = "192.168.1.50", tcp = { source_port = 50002, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test 2: Traffic from non-blocked IP - processed normally
 [[tests]]
-name = "Non-Blocked IP - Processed Normally"
+name = "non-blocked IP - processed normally"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 3: Allowed ports set - HTTP allowed
 [[tests]]
-name = "Allowed Ports Set - HTTP Allowed"
+name = "allowed ports set - HTTP allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 4: Allowed ports set - HTTPS allowed
 [[tests]]
-name = "Allowed Ports Set - HTTPS Allowed"
+name = "allowed ports set - HTTPS allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45001, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 5: Allowed ports set - 8080 allowed
 [[tests]]
-name = "Allowed Ports Set - 8080 Allowed"
+name = "allowed ports set - 8080 allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45002, dest_port = 8080, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 6: Disallowed port - dropped
 [[tests]]
-name = "Disallowed Port - Dropped"
+name = "disallowed port - dropped"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45003, dest_port = 25, flags = ["SYN"] } }
@@ -75,33 +69,29 @@ expect = [ { hook = "forward", verdict = "drop" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 45004, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test 7: DMZ interval set - first IP in range
 [[tests]]
-name = "DMZ Interval Set - First IP in Range"
+name = "DMZ interval set - first IP in range"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "10.99.0.10", tcp = { source_port = 50000, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 8: DMZ interval set - middle IP in range
 [[tests]]
-name = "DMZ Interval Set - Middle IP in Range"
+name = "DMZ interval set - middle IP in range"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "10.99.0.15", tcp = { source_port = 50001, dest_port = 3389, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 9: DMZ interval set - last IP in range
 [[tests]]
-name = "DMZ Interval Set - Last IP in Range"
+name = "DMZ interval set - last IP in range"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "10.99.0.20", tcp = { source_port = 50002, dest_port = 445, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 10: IP outside DMZ range - dropped
 [[tests]]
-name = "IP Outside DMZ Range - Dropped"
+name = "IP outside DMZ range - dropped"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "10.99.0.9", tcp = { source_port = 50003, dest_port = 22, flags = ["SYN"] } }
@@ -111,17 +101,15 @@ expect = [ { hook = "forward", verdict = "drop" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "10.99.0.21", tcp = { source_port = 50004, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test 11: Blocked IP to firewall - dropped
 [[tests]]
-name = "Blocked IP to Firewall Input - Dropped"
+name = "blocked IP to firewall input - dropped"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "1.2.3.4", dest_ip = "192.168.1.1", tcp = { source_port = 60000, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# Test 12: Multiple ports from allowed set
 [[tests]]
-name = "Multiple Ports from Allowed Set"
+name = "multiple ports from allowed set"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 30001, dest_port = 80, flags = ["SYN"] } }

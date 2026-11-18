@@ -4,15 +4,15 @@ table inet filter {
         
         ct state established,related accept
         
-        # Drop packets with TTL <= 1 (would expire in transit)
+        # drop packets with TTL <= 1 (would expire in transit)
         ip ttl 0-1 drop
         
-        # Allow valid TTL packets
+        # allow valid TTL packets
         iifname "eth0" oifname "eth1" ip ttl 2-255 tcp dport 80 accept
         iifname "eth0" oifname "eth1" ip ttl 2-255 udp dport 53 accept
         iifname "eth0" oifname "eth1" ip ttl 2-255 icmp type echo-request accept
         
-        # Allow established return traffic
+        # allow established return traffic
         iifname "eth1" oifname "eth0" accept
     }
     
@@ -22,10 +22,10 @@ table inet filter {
         iif lo accept
         ct state established,related accept
         
-        # Drop expired packets
+        # drop expired packets
         ip ttl 0-1 drop
         
-        # Allow valid TTL
+        # allow valid TTL
         ip ttl 2-255 accept
     }
     

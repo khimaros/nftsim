@@ -2,49 +2,49 @@ table inet filter {
     chain prerouting {
         type nat hook prerouting priority -100; policy accept;
         
-        # Port forwarding: External :80 -> Internal web server :8080
+        # port forwarding: external :80 -> internal web server :8080
         iifname "eth1" ip daddr 203.0.113.10 tcp dport 80 dnat to 192.168.1.100:8080
         
-        # Port forwarding: External :443 -> Internal HTTPS server :8443
+        # port forwarding: external :443 -> internal HTTPS server :8443
         iifname "eth1" ip daddr 203.0.113.10 tcp dport 443 dnat to 192.168.1.100:8443
         
-        # Port forwarding: External :2222 -> Internal SSH server :22
+        # port forwarding: external :2222 -> internal SSH server :22
         iifname "eth1" ip daddr 203.0.113.10 tcp dport 2222 dnat to 192.168.1.50:22
         
-        # DNS forwarding: External :53 UDP -> Internal DNS server :53
+        # DNS forwarding: external :53 UDP -> internal DNS server :53
         iifname "eth1" ip daddr 203.0.113.10 udp dport 53 dnat to 192.168.1.200:53
         
-        # Port range forwarding: External :3000-3010 -> Internal :3000-3010
+        # port range forwarding: external :3000-3010 -> internal :3000-3010
         iifname "eth1" ip daddr 203.0.113.10 tcp dport 3000-3010 dnat to 192.168.1.150
     }
     
     chain postrouting {
         type nat hook postrouting priority 100; policy accept;
         
-        # Masquerade outbound traffic
+        # masquerade outbound traffic
         oifname "eth1" masquerade
     }
     
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Allow port-forwarded traffic
+        # allow port-forwarded traffic
         iifname "eth1" oifname "eth0" ct status dnat accept
         
-        # Allow established/related connections
+        # allow established/related connections
         ct state established,related accept
         
-        # Allow outbound traffic from internal network
+        # allow outbound traffic from internal network
         iifname "eth0" oifname "eth1" accept
     }
     
     chain input {
         type filter hook input priority 0; policy drop;
         
-        # Allow loopback
+        # allow loopback
         iif lo accept
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
     }
     

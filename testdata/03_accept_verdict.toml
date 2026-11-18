@@ -1,4 +1,4 @@
-# Test config for accept verdicts (packets destined to the firewall itself)
+# accept verdict tests for packets destined to the firewall itself
 
 [network]
 interfaces = [
@@ -13,31 +13,27 @@ sysctls = {}
 pre_nft_commands = []
 post_nft_commands = []
 
-# Test: SSH to firewall itself should be accepted in INPUT chain
 [[tests]]
-name = "SSH to Firewall - Accept"
+name = "SSH to firewall - accept"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 50000, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
-# Test: HTTP to firewall should be dropped (not in allowed list)
+# HTTP is not in the allowed set
 [[tests]]
-name = "HTTP to Firewall - Drop"
+name = "HTTP to firewall - drop"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 50001, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# Test: DNS to firewall from internal network - should be dropped
-# NOTE: ICMP not yet supported, using TCP instead
 [[tests]]
-name = "DNS to Firewall from Internal - Drop"
+name = "DNS to firewall from internal - drop"
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", tcp = { source_port = 50002, dest_port = 53, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# Test: External source trying to access firewall
 [[tests]]
-name = "External Access to Firewall - Drop"
+name = "external access to firewall - drop"
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.0.0.1", tcp = { source_port = 12345, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]

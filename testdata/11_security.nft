@@ -1,38 +1,38 @@
 table inet filter {
-    # Invalid packet handling and security tests
+    # invalid packet handling and security tests
     
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Drop invalid packets
+        # drop invalid packets
         ct state invalid drop
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Allow new connections from internal to external
+        # allow new connections from internal to external
         iifname "eth0" oifname "eth1" ct state new accept
         
-        # Block external to internal (unless established/related handled above)
+        # block external to internal (established/related is handled above)
         iifname "eth1" oifname "eth0" drop
     }
     
     chain input {
         type filter hook input priority 0; policy drop;
         
-        # Allow loopback
+        # allow loopback
         iif lo accept
         
-        # Drop invalid packets
+        # drop invalid packets
         ct state invalid drop
         
-        # Allow established/related
+        # allow established/related
         ct state established,related accept
         
-        # Allow ICMP from internal network only
+        # allow ICMP from internal network only
         iifname "eth0" icmp type echo-request accept
         
-        # Allow SSH from internal network only
+        # allow SSH from internal network only
         iifname "eth0" tcp dport 22 accept
     }
     

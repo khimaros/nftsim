@@ -1,5 +1,5 @@
 #!/usr/sbin/nft -f
-# Ruleset for UDP tests
+# ruleset for UDP tests
 
 flush ruleset
 
@@ -12,16 +12,16 @@ table inet filter {
     chain forward {
         type filter hook forward priority 0; policy drop;
         
-        # Drop invalid packets
+        # drop invalid packets
         ct state invalid counter drop
         
-        # Allow established/related connections
+        # allow established/related connections
         ct state established,related counter accept
         
-        # Allow internal network to access allowed UDP services
+        # allow internal network to access allowed UDP services
         ip saddr 192.168.1.0/24 udp dport @allowed_udp_ports ct state new counter accept
         
-        # Drop external to internal
+        # drop external to internal
         ip daddr 192.168.1.0/24 counter drop
     }
 }

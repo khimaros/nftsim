@@ -10,16 +10,16 @@ table inet filter {
     chain forward {
         type filter hook forward priority filter; policy drop;
 
-        # Allow established/related connections
+        # allow established/related connections
         ct state established,related accept
 
-        # Allow TCP from internal to external
+        # allow TCP from internal to external
         iifname "eth0" oifname "eth1" ip saddr 192.168.1.0/24 tcp dport { 80, 443 } accept
 
-        # Allow UDP DNS queries from internal to external
+        # allow UDP DNS queries from internal to external
         iifname "eth0" oifname "eth1" ip saddr 192.168.1.0/24 udp dport 53 accept
 
-        # Allow ICMP echo from internal to external
+        # allow ICMP echo from internal to external
         iifname "eth0" oifname "eth1" ip saddr 192.168.1.0/24 icmp type echo-request accept
     }
 

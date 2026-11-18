@@ -1,7 +1,4 @@
-// src/commands/test/packet.rs
-//
-// Packet building functions for nftsim
-// Builds proper Ethernet frames with IPv4/IPv6 support using pnet_packet
+// builds Ethernet frames for host-side injection, with IPv4/IPv6 support via pnet_packet
 
 use pnet_packet::ethernet::{EtherTypes, MutableEthernetPacket};
 use pnet_packet::ip::IpNextHeaderProtocol;
@@ -11,6 +8,7 @@ use pnet_packet::tcp::{MutableTcpPacket, TcpFlags};
 use pnet_packet::udp::MutableUdpPacket;
 use std::net::IpAddr;
 
+/// IP protocol number for the transport, which differs for ICMP over IPv6
 pub(super) fn get_protocol(
     transport: &crate::config::Transport,
     is_ipv6: bool,
@@ -28,7 +26,7 @@ pub(super) fn get_protocol(
     }
 }
 
-/// Build transport layer with checksums (TCP/UDP/ICMP)
+/// build the transport layer (TCP/UDP/ICMP) with valid checksums
 pub(super) fn build_transport_layer(
     transport: &crate::config::Transport,
     src_ip: &IpAddr,
@@ -50,7 +48,7 @@ pub(super) fn build_transport_layer(
 
                 let mut flags = 0u8;
                 for f in &cfg.flags {
-                    flags |= match f.as_str() {
+                    flags |= match f.to_uppercase().as_str() {
                         "SYN" => TcpFlags::SYN,
                         "ACK" => TcpFlags::ACK,
                         "FIN" => TcpFlags::FIN,
@@ -69,7 +67,6 @@ pub(super) fn build_transport_layer(
                 buf[20..].copy_from_slice(payload);
             }
 
-            // Calculate checksum with pseudo-header
             let csum = match (src_ip, dst_ip) {
                 (IpAddr::V4(src), IpAddr::V4(dst)) => pnet_packet::tcp::ipv4_checksum(
                     &pnet_packet::tcp::TcpPacket::new(&buf).unwrap(),
@@ -103,7 +100,6 @@ pub(super) fn build_transport_layer(
                 buf[8..].copy_from_slice(payload);
             }
 
-            // Calculate checksum with pseudo-header
             let csum = match (src_ip, dst_ip) {
                 (IpAddr::V4(src), IpAddr::V4(dst)) => pnet_packet::udp::ipv4_checksum(
                     &pnet_packet::udp::UdpPacket::new(&buf).unwrap(),
@@ -117,6 +113,7 @@ pub(super) fn build_transport_layer(
                 ),
                 _ => 0,
             };
+            // a zero UDP checksum means "none", so a computed zero is sent as all ones
             let final_csum = if csum == 0 { 0xFFFF } else { csum };
             buf[6] = (final_csum >> 8) as u8;
             buf[7] = (final_csum & 0xFF) as u8;
@@ -127,22 +124,22 @@ pub(super) fn build_transport_layer(
             let payload_len = cfg.payload.as_ref().map_or(0, |p| p.len());
             let mut buf = vec![0u8; 8 + payload_len];
 
-            // For IPv6, translate ICMPv4 types to ICMPv6 types
+            // test definitions name ICMPv4 types, so map the common ones to
+            // their ICMPv6 equivalents and pass the rest through
             let is_ipv6 = matches!(src_ip, IpAddr::V6(_));
             let icmp_type_num = if is_ipv6 {
-                // Translate common ICMP types to ICMPv6 equivalents
                 match cfg.icmp_type {
-                    0 => 129,           // Echo Reply: ICMPv4 type 0 -> ICMPv6 type 129
-                    3 => 1,             // Destination Unreachable: ICMPv4 type 3 -> ICMPv6 type 1
-                    8 => 128,           // Echo Request: ICMPv4 type 8 -> ICMPv6 type 128
-                    11 => 3,            // Time Exceeded: ICMPv4 type 11 -> ICMPv6 type 3
-                    _ => cfg.icmp_type, // Pass through other types
+                    0 => 129,           // echo reply
+                    3 => 1,             // destination unreachable
+                    8 => 128,           // echo request
+                    11 => 3,            // time exceeded
+                    _ => cfg.icmp_type,
                 }
             } else {
                 cfg.icmp_type
             };
 
-            // Directly set the type and code bytes since IcmpTypes enum doesn't cover ICMPv6
+            // set the bytes directly since IcmpTypes does not cover ICMPv6
             buf[0] = icmp_type_num;
             buf[1] = cfg.code;
 
@@ -154,9 +151,8 @@ pub(super) fn build_transport_layer(
                 buf[8..].copy_from_slice(payload);
             }
 
-            // Calculate checksum (for ICMPv6, this needs pseudo-header)
+            // ICMPv6 checksums cover a pseudo-header like TCP/UDP; ICMPv4 does not
             if is_ipv6 {
-                // ICMPv6 uses a pseudo-header checksum like TCP/UDP
                 let csum = match (src_ip, dst_ip) {
                     (IpAddr::V6(src), IpAddr::V6(dst)) => pnet_packet::icmpv6::checksum(
                         &pnet_packet::icmpv6::Icmpv6Packet::new(&buf).unwrap(),
@@ -168,7 +164,6 @@ pub(super) fn build_transport_layer(
                 buf[2] = (csum >> 8) as u8;
                 buf[3] = (csum & 0xFF) as u8;
             } else {
-                // ICMPv4 uses simple checksum
                 let csum =
                     pnet_packet::icmp::checksum(&pnet_packet::icmp::IcmpPacket::new(&buf).unwrap());
                 buf[2] = (csum >> 8) as u8;
@@ -180,9 +175,10 @@ pub(super) fn build_transport_layer(
     }
 }
 
-/// Build a proper Ethernet frame with IPv4/IPv6 support using pnet_packet
+/// build an Ethernet frame addressed to the guest interface behind
+/// `socket_idx`, or an empty frame when the addresses are invalid or mix
+/// IP versions
 pub(super) fn build_test_frame(packet: &crate::config::Packet, socket_idx: usize) -> Vec<u8> {
-    // Parse IP addresses to determine version
     let src_ip = match packet.source_ip.parse::<IpAddr>() {
         Ok(ip) => ip,
         Err(_) => return Vec::new(),
@@ -192,20 +188,18 @@ pub(super) fn build_test_frame(packet: &crate::config::Packet, socket_idx: usize
         Err(_) => return Vec::new(),
     };
 
-    // Build transport layer first
     let transport_data = build_transport_layer(&packet.transport, &src_ip, &dst_ip);
 
-    // Calculate sizes
     let eth_len = 14;
     let ip_len = match (&src_ip, &dst_ip) {
         (IpAddr::V4(_), IpAddr::V4(_)) => 20,
         (IpAddr::V6(_), IpAddr::V6(_)) => 40,
-        _ => return Vec::new(), // Mixed IP versions not supported
+        _ => return Vec::new(),
     };
 
     let mut frame = vec![0u8; eth_len + ip_len + transport_data.len()];
 
-    // Ethernet header
+    // the destination matches the fixed MAC the runner assigns to vec{socket_idx}
     {
         let mut eth = MutableEthernetPacket::new(&mut frame[..eth_len]).unwrap();
         eth.set_destination([0x00, 0x00, 0x00, 0x00, 0x00, (socket_idx + 1) as u8].into());
@@ -216,7 +210,6 @@ pub(super) fn build_test_frame(packet: &crate::config::Packet, socket_idx: usize
         });
     }
 
-    // IP header and payload
     let is_ipv6 = matches!(src_ip, IpAddr::V6(_));
 
     match (&src_ip, &dst_ip) {
@@ -248,12 +241,10 @@ pub(super) fn build_test_frame(packet: &crate::config::Packet, socket_idx: usize
             ip.set_hop_limit(64);
             ip.set_source(*src);
             ip.set_destination(*dst);
-            // IPv6 has no header checksum
         }
         _ => return Vec::new(),
     }
 
-    // Copy transport data
     frame[eth_len + ip_len..].copy_from_slice(&transport_data);
 
     frame

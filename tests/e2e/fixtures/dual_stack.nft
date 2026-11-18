@@ -1,0 +1,22 @@
+#!/usr/sbin/nft -f
+
+# dual-stack gateway: LAN on eth1, WAN on eth0, both families masqueraded out WAN
+
+table inet filter {
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		iifname "eth1" oifname "eth0" accept
+	}
+
+	chain output {
+		type filter hook output priority filter; policy drop;
+		oifname "eth0" tcp dport 443 accept
+	}
+}
+
+table inet nat {
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "eth0" masquerade
+	}
+}

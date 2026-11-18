@@ -1,7 +1,7 @@
-# Test suite 14: Counters and Quotas
+# test suite 14: counters and quotas
 #
-# Tests nftables counter and quota functionality
-# Note: We can't validate counter values directly, but we verify packets pass through counted rules
+# nftables counters and quotas
+# counter values are not validated directly, only that packets pass through counted rules
 
 [network]
 interfaces = [
@@ -16,17 +16,15 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test 1: HTTP traffic increments counter
 [[tests]]
-name = "HTTP Counter - First Request"
+name = "HTTP counter - first request"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 2: More HTTP traffic
 [[tests]]
-name = "HTTP Counter - Multiple Requests"
+name = "HTTP counter - multiple requests"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.51", dest_ip = "8.8.8.8", tcp = { source_port = 40001, dest_port = 80, flags = ["SYN"] } }
@@ -40,9 +38,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.53", dest_ip = "8.8.8.8", tcp = { source_port = 40003, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 3: HTTPS counter
 [[tests]]
-name = "HTTPS Counter - Requests"
+name = "HTTPS counter - requests"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "1.1.1.1", tcp = { source_port = 45000, dest_port = 443, flags = ["SYN"] } }
@@ -52,9 +49,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.61", dest_ip = "1.1.1.1", tcp = { source_port = 45001, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 4: ICMP counter
 [[tests]]
-name = "ICMP Counter - Pings"
+name = "ICMP counter - pings"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.70", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
@@ -68,9 +64,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.72", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 5: Mixed counters - all protocols
 [[tests]]
-name = "Mixed Counters - All Protocols"
+name = "mixed counters - all protocols"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "8.8.8.8", tcp = { source_port = 50000, dest_port = 80, flags = ["SYN"] } }
@@ -84,17 +79,16 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.82", dest_ip = "8.8.8.8", icmp = { type = 8, code = 0 } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 6: DNS (uncounted traffic)
 [[tests]]
-name = "DNS - Uncounted Traffic Allowed"
+name = "DNS - uncounted traffic allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.90", dest_ip = "8.8.8.8", udp = { source_port = 55000, dest_port = 53 } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 7: Established connections (counted in stateful tracking)
+# established connections (counted in stateful tracking)
 [[tests]]
-name = "Established Connection - HTTP Full Handshake"
+name = "established connection - HTTP full handshake"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
@@ -108,9 +102,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth0" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "8.8.8.8", tcp = { source_port = 60000, dest_port = 80, flags = ["ACK"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 8: Multiple sources same destination (counter aggregation)
 [[tests]]
-name = "Counter Aggregation - Multiple Sources"
+name = "counter aggregation - multiple sources"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "8.8.8.8", tcp = { source_port = 30001, dest_port = 80, flags = ["SYN"] } }

@@ -48,7 +48,7 @@ expect = [
 ]
 
 [[tests]]
-name = "Outbound SNAT from internal network"
+name = "outbound SNAT from internal network"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "203.0.113.50", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
@@ -58,7 +58,7 @@ expect = [
 ]
 
 [[tests]]
-name = "Masquerade on eth2"
+name = "masquerade on eth2"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.60", dest_ip = "198.51.100.50", tcp = { source_port = 45100, dest_port = 80, flags = ["SYN"] } }
@@ -68,7 +68,7 @@ expect = [
 ]
 
 [[tests]]
-name = "Bidirectional NAT - inbound DNAT with established response"
+name = "bidirectional NAT - inbound DNAT with established response"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "203.0.113.50", dest_ip = "203.0.113.1", tcp = { source_port = 50300, dest_port = 8080, flags = ["SYN"] } }
@@ -101,7 +101,7 @@ expect = [
 ]
 
 [[tests]]
-name = "Multiple internal hosts with same SNAT IP"
+name = "multiple internal hosts with same SNAT IP"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.80", dest_ip = "203.0.113.50", tcp = { source_port = 45300, dest_port = 80, flags = ["SYN"] } }

@@ -1,5 +1,5 @@
 #!/usr/sbin/nft -f
-# Ruleset for verdict validation tests
+# ruleset for verdict validation tests
 
 flush ruleset
 
@@ -22,43 +22,43 @@ table inet filter {
     chain input {
         type filter hook input priority 0; policy drop;
 
-        # Accept loopback
+        # accept loopback
         iif "lo" accept
 
-        # Accept ICMP
+        # accept ICMP
         meta l4proto { icmp, ipv6-icmp } accept
 
-        # Accept established/related
+        # accept established/related
         ct state established,related accept
 
-        # Accept SSH from internal network
+        # accept SSH from internal network
         ip saddr 192.168.1.0/24 tcp dport 22 accept
 
-        # Reject patterns (test different nftables syntaxes)
-        tcp dport 23 reject                                          # Direct port
-        tcp dport 25 reject with tcp reset                           # With modifier
-        tcp dport @rejected_ports reject                             # Set-based
+        # reject patterns (test different nftables syntaxes)
+        tcp dport 23 reject                                          # direct port
+        tcp dport 25 reject with tcp reset                           # with modifier
+        tcp dport @rejected_ports reject                             # set-based
     }
 
     chain forward {
         type filter hook forward priority 0; policy drop;
 
-        # Drop invalid packets
+        # drop invalid packets
         ct state invalid counter drop
 
-        # Allow established/related connections
+        # allow established/related connections
         ct state established,related counter accept
 
-        # Block traffic to blocked IPs
+        # block traffic to blocked IPs
         ip daddr @blocked_ips counter drop
 
-        # Allow internal network to access allowed services
+        # allow internal network to access allowed services
         ip saddr 192.168.1.0/24 tcp dport @allowed_tcp_ports ct state new counter accept
 
-        # Allow UDP DNS
+        # allow UDP DNS
         ip saddr 192.168.1.0/24 udp dport 53 ct state new counter accept
 
-        # Explicitly drop external to internal
+        # explicitly drop external to internal
         ip daddr 192.168.1.0/24 counter drop
     }
 
@@ -71,14 +71,14 @@ table ip nat {
     chain prerouting {
         type nat hook prerouting priority -100; policy accept;
 
-        # Port forward 8080 to internal server
+        # port forward 8080 to internal server
         iifname "eth1" tcp dport 8080 dnat to 192.168.1.50:80
     }
 
     chain postrouting {
         type nat hook postrouting priority 100; policy accept;
 
-        # Masquerade outbound traffic from internal network
+        # masquerade outbound traffic from internal network
         ip saddr 192.168.1.0/24 oifname "eth1" masquerade
     }
 }

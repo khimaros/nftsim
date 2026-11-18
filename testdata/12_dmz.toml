@@ -1,6 +1,6 @@
-# Test suite 12: DMZ / 3-Interface Firewall
+# test suite 12: DMZ / 3-interface firewall
 #
-# Tests a realistic DMZ setup with Internal, External, and DMZ zones
+# a realistic DMZ setup with internal, external and DMZ zones
 
 [network]
 interfaces = [
@@ -16,17 +16,15 @@ routes = [
 [guest_setup]
 sysctls = { "net.ipv4.ip_forward" = "1" }
 
-# Test 1: Internal to External - allowed
 [[tests]]
-name = "Internal to External - Allowed"
+name = "internal to external - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "8.8.8.8", tcp = { source_port = 40000, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 2: Internal to DMZ web server - allowed
 [[tests]]
-name = "Internal to DMZ Web Server - Allowed"
+name = "internal to DMZ web server - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "10.99.0.50", tcp = { source_port = 50000, dest_port = 80, flags = ["SYN"] } }
@@ -36,17 +34,16 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth2" } ]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "10.99.0.50", tcp = { source_port = 50001, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth2" } ]
 
-# Test 3: Internal to DMZ non-web port - blocked
+# only web ports are open from internal to the DMZ
 [[tests]]
-name = "Internal to DMZ SSH - Blocked"
+name = "internal to DMZ SSH - blocked"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.100", dest_ip = "10.99.0.50", tcp = { source_port = 50002, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test 4: External to DMZ web server - allowed
 [[tests]]
-name = "External to DMZ Web Server - Allowed"
+name = "external to DMZ web server - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.99.0.50", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
@@ -56,65 +53,59 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth2" } ]
 packet = { on_interface = "eth1", source_ip = "5.6.7.8", dest_ip = "10.99.0.51", tcp = { source_port = 60001, dest_port = 443, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth2" } ]
 
-# Test 5: External to DMZ non-web - blocked
 [[tests]]
-name = "External to DMZ SSH - Blocked"
+name = "external to DMZ SSH - blocked"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.99.0.50", tcp = { source_port = 60002, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test 6: DMZ to Internal - blocked (DMZ is untrusted)
+# the DMZ is untrusted
 [[tests]]
-name = "DMZ to Internal - Blocked"
+name = "DMZ to internal - blocked"
 
 [[tests.packets]]
 packet = { on_interface = "eth2", source_ip = "10.99.0.50", dest_ip = "192.168.1.100", tcp = { source_port = 55000, dest_port = 445, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "drop" } ]
 
-# Test 7: DMZ to External - allowed (for updates)
+# DMZ hosts still need to fetch updates
 [[tests]]
-name = "DMZ to External - Allowed"
+name = "DMZ to external - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth2", source_ip = "10.99.0.50", dest_ip = "8.8.8.8", tcp = { source_port = 45000, dest_port = 80, flags = ["SYN"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 8: SSH to firewall from internal - allowed
 [[tests]]
-name = "SSH to Firewall from Internal - Allowed"
+name = "SSH to firewall from internal - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.10", dest_ip = "192.168.1.1", tcp = { source_port = 50000, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
-# Test 9: SSH to firewall from DMZ - blocked
 [[tests]]
-name = "SSH to Firewall from DMZ - Blocked"
+name = "SSH to firewall from DMZ - blocked"
 
 [[tests.packets]]
 packet = { on_interface = "eth2", source_ip = "10.99.0.50", dest_ip = "10.99.0.1", tcp = { source_port = 50000, dest_port = 22, flags = ["SYN"] } }
 expect = [ { hook = "input", verdict = "drop" } ]
 
-# Test 10: ICMP from internal to firewall - allowed
 [[tests]]
-name = "ICMP from Internal to Firewall - Allowed"
+name = "ICMP from internal to firewall - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.50", dest_ip = "192.168.1.1", icmp = { type = 8, code = 0 } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
-# Test 11: ICMP from DMZ to firewall - allowed
 [[tests]]
-name = "ICMP from DMZ to Firewall - Allowed"
+name = "ICMP from DMZ to firewall - allowed"
 
 [[tests.packets]]
 packet = { on_interface = "eth2", source_ip = "10.99.0.50", dest_ip = "10.99.0.1", icmp = { type = 8, code = 0 } }
 expect = [ { hook = "input", verdict = "accept" } ]
 
-# Test 12: Established connection from DMZ response - allowed
 [[tests]]
-name = "DMZ Web Server Response - Allowed (Established)"
+name = "DMZ web server response - allowed (established)"
 
 [[tests.packets]]
 packet = { on_interface = "eth1", source_ip = "1.2.3.4", dest_ip = "10.99.0.50", tcp = { source_port = 60000, dest_port = 80, flags = ["SYN"] } }
@@ -124,9 +115,8 @@ expect = [ { hook = "forward", verdict = "accept", to_interface = "eth2" } ]
 packet = { on_interface = "eth2", source_ip = "10.99.0.50", dest_ip = "1.2.3.4", tcp = { source_port = 80, dest_port = 60000, flags = ["SYN", "ACK"] } }
 expect = [ { hook = "forward", verdict = "accept", to_interface = "eth1" } ]
 
-# Test 13: Multiple zones simultaneously
 [[tests]]
-name = "Multi-Zone Concurrent Traffic"
+name = "multi-zone concurrent traffic"
 
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.20", dest_ip = "8.8.8.8", tcp = { source_port = 30001, dest_port = 443, flags = ["SYN"] } }
