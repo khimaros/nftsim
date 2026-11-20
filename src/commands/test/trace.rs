@@ -3,6 +3,87 @@
 use crate::config::{is_ipv6, same_address};
 use std::collections::HashMap;
 
+const TRACE_FAMILIES: &[&str] = &["ip", "ip6", "inet", "arp", "bridge", "netdev"];
+const TRACE_VERDICTS: &[&str] = &[
+    "accept", "drop", "continue", "return", "jump", "goto", "stolen", "queue", "repeat", "stop",
+];
+
+/// check that a single non-empty line matches nft monitor trace's envelope format
+fn is_recognized_trace_line(line: &str) -> bool {
+    let line = line.trim_end();
+    let Some(rest) = line.strip_prefix("trace id ") else {
+        return false;
+    };
+    let mut parts = rest.splitn(6, ' ');
+    let (Some(id), Some(family), Some(table), Some(chain), Some(kind), Some(body)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    if id.is_empty()
+        || !id.chars().all(|c| c.is_ascii_hexdigit())
+        || !TRACE_FAMILIES.contains(&family)
+        || table.is_empty()
+        || chain.is_empty()
+    {
+        return false;
+    }
+    match kind {
+        "packet:" => !body.is_empty(),
+        "policy" => matches!(body.split_whitespace().next(), Some("accept" | "drop")),
+        "verdict" => body
+            .split_whitespace()
+            .next()
+            .is_some_and(|v| TRACE_VERDICTS.contains(&v)),
+        "rule" => {
+            let Some((_, verdict_tail)) = body.rsplit_once("(verdict ") else {
+                return false;
+            };
+            let Some(verdict_expr) = verdict_tail.strip_suffix(')') else {
+                return false;
+            };
+            verdict_expr
+                .split_whitespace()
+                .next()
+                .is_some_and(|v| TRACE_VERDICTS.contains(&v))
+        }
+        _ => false,
+    }
+}
+
+/// return every non-empty line in `trace` that does not match nft trace format
+pub(super) fn find_unrecognized_trace_lines(trace: &str) -> Vec<&str> {
+    trace
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !is_recognized_trace_line(line))
+        .collect()
+}
+
+/// extract the target IP address from a `snat` or `dnat` rule trace line
+fn extract_nat_addr(line: &str, kind: &str) -> Option<String> {
+    let patterns = [
+        format!("{} ip6 to ", kind),
+        format!("{} ip to ", kind),
+        format!("{} to ", kind),
+    ];
+    let after = patterns
+        .iter()
+        .find_map(|pat| line.find(pat).map(|pos| &line[pos + pat.len()..]))?;
+    let token = after.split_whitespace().next()?;
+    if let Some(bracketed) = token.strip_prefix('[') {
+        bracketed.split(']').next().map(str::to_string)
+    } else if token.matches(':').count() == 1 {
+        token.split(':').next().map(str::to_string)
+    } else {
+        Some(token.to_string())
+    }
+}
+
 /// hook of each base chain in the loaded ruleset, keyed "family table chain"
 /// (e.g. "ip wg-quick-wg0 preraw" -> "PREROUTING")
 pub(super) type ChainHooks = HashMap<String, String>;
@@ -179,44 +260,12 @@ pub(super) fn parse_trace_for_packet(
                 }
             }
 
-            if line.contains("snat to ") || line.contains("snat ip to ") {
-                let to_start = if let Some(pos) = line.find("snat ip to ") {
-                    pos + 11
-                } else if let Some(pos) = line.find("snat to ") {
-                    pos + 8
-                } else {
-                    continue;
-                };
-
-                let addr_part = &line[to_start..];
-                if let Some(addr_end) = addr_part.find(|c: char| c.is_whitespace()) {
-                    let addr = &addr_part[..addr_end];
-                    if let Some(colon_pos) = addr.find(':') {
-                        info.src_nat = Some(addr[..colon_pos].to_string());
-                    } else {
-                        info.src_nat = Some(addr.to_string());
-                    }
-                }
+            if let Some(addr) = extract_nat_addr(line, "snat") {
+                info.src_nat = Some(addr);
             }
 
-            if line.contains("dnat to ") || line.contains("dnat ip to ") {
-                let to_start = if let Some(pos) = line.find("dnat ip to ") {
-                    pos + 11
-                } else if let Some(pos) = line.find("dnat to ") {
-                    pos + 8
-                } else {
-                    continue;
-                };
-
-                let addr_part = &line[to_start..];
-                if let Some(addr_end) = addr_part.find(|c: char| c.is_whitespace()) {
-                    let addr = &addr_part[..addr_end];
-                    if let Some(colon_pos) = addr.find(':') {
-                        info.dst_nat = Some(addr[..colon_pos].to_string());
-                    } else {
-                        info.dst_nat = Some(addr.to_string());
-                    }
-                }
+            if let Some(addr) = extract_nat_addr(line, "dnat") {
+                info.dst_nat = Some(addr);
             }
 
             // masquerade traces carry no address, so guess the output
@@ -352,5 +401,47 @@ ipv4     2 icmp     1 29 src=192.168.1.51 dst=192.0.2.7 type=8 code=0 id=1 [UNRE
     #[test]
     fn conntrack_without_the_connection_has_no_answer() {
         assert_eq!(parse_conntrack_snat(CONNTRACK, "192.168.1.50", "192.0.2.7", Some(40009), Some(443)), None);
+    }
+
+    #[test]
+    fn recognized_trace_envelopes_produce_no_errors() {
+        let valid = "\
+trace id 69d642c1 inet filter prerouting packet: iif \"eth0\" ip saddr 192.168.1.50 ip daddr 8.8.8.8
+trace id 69d642c1 inet filter prerouting rule meta nftrace set 1 (verdict continue)
+trace id 69d642c1 inet filter prerouting rule tcp dport 22 jump ssh_in (verdict jump ssh_in)
+trace id 69d642c1 inet filter ssh_in verdict return
+trace id 69d642c1 inet filter prerouting policy accept meta mark 0x000000d4 
+";
+        assert!(find_unrecognized_trace_lines(valid).is_empty());
+    }
+
+    #[test]
+    fn unrecognized_trace_lines_are_reported() {
+        let mixed = "\
+trace id 69d642c1 inet filter forward policy drop
+unexpected nft output v999
+trace id 69d642c1 inet filter forward rule tcp dport 80 (verdict bogus)
+";
+        assert_eq!(
+            find_unrecognized_trace_lines(mixed),
+            vec![
+                "unexpected nft output v999",
+                "trace id 69d642c1 inet filter forward rule tcp dport 80 (verdict bogus)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ipv6_nat_addresses_preserve_full_address() {
+        let trace = "\
+trace id 1234abcd ip6 nat prerouting packet: iif \"eth1\" ip6 saddr 2001:db8:1::2 ip6 daddr 2001:db8:2::1 ip6 nexthdr tcp tcp sport 40000 tcp dport 443
+trace id 1234abcd ip6 nat prerouting rule tcp dport 443 dnat ip6 to [2001:db8:3::10]:8443 (verdict accept)
+trace id 1234abcd ip6 nat postrouting packet: iif \"eth1\" oif \"eth0\" ip6 saddr 2001:db8:1::2 ip6 daddr 2001:db8:3::10 ip6 nexthdr tcp tcp sport 40000 tcp dport 8443
+trace id 1234abcd ip6 nat postrouting rule oifname \"eth0\" snat ip6 to 2001:db8:3::1 (verdict accept)
+";
+        let info = parse_trace_for_packet(trace, "eth1", "2001:db8:1::2", "2001:db8:2::1", Some(40000), Some(443), &HashMap::new(), &ChainHooks::new())
+            .expect("packet not found in trace");
+        assert_eq!(info.dst_nat.as_deref(), Some("2001:db8:3::10"));
+        assert_eq!(info.src_nat.as_deref(), Some("2001:db8:3::1"));
     }
 }

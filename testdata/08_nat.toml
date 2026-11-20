@@ -95,11 +95,11 @@ expect = [
   { hook = "forward", verdict = "accept", to_interface = "eth0" }
 ]
 
+# established packets bypass `type nat` chains; conntrack reuses the translation
 [[tests.packets]]
 packet = { on_interface = "eth0", source_ip = "192.168.1.75", dest_ip = "1.1.1.1", tcp = { source_port = 35000, dest_port = 443, flags = ["ACK"] } }
 expect = [
-  { hook = "forward", verdict = "accept", to_interface = "eth1" },
-  { hook = "postrouting", verdict = "accept", src_nat = "203.0.113.10" }
+  { hook = "forward", verdict = "accept", to_interface = "eth1" }
 ]
 
 [[tests]]

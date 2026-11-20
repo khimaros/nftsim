@@ -64,12 +64,12 @@ nft list tables | while read -r family_table; do
 done
 
 echo "starting nft monitor trace..." | tee -a /mnt/host/harness.log
-nft monitor trace > /mnt/host/trace.log &
+nft monitor trace >> /mnt/host/trace.log 2> /mnt/host/trace_monitor.err &
 TRACE_PID=$!
 echo "trace monitor PID: $TRACE_PID" | tee -a /mnt/host/harness.log
 
 # the monitor subscribes asynchronously: packets injected before it joins the
-# trace group are never traced, so hold READY until it has
+# trace group are never traced, so fail startup if it never subscribes
 polls=0
 until trace_subscribed || [ "$polls" -ge "$TRACE_SUBSCRIBE_POLLS" ]; do
   polls=$((polls + 1))
@@ -78,7 +78,10 @@ done
 if trace_subscribed; then
   echo "trace monitor subscribed after $polls polls" | tee -a /mnt/host/harness.log
 else
-  echo "warning: trace monitor not subscribed, first packets may go untraced" | tee -a /mnt/host/harness.log
+  echo "error: trace monitor did not subscribe to netlink trace group" | tee -a /mnt/host/harness.log
+  kill "$TRACE_PID" 2>/dev/null || true
+  sync
+  exit 1
 fi
 
 if [ -f /mnt/host/post-nft-commands.sh ]; then
@@ -117,7 +120,12 @@ echo "starting command listener..." | tee -a /mnt/host/harness.log
                 ;;
               SHUTDOWN)
                 echo "[$(date +%H:%M:%S)] SHUTDOWN" >> /mnt/host/commands.log
-                echo "ACK 0" >> /mnt/host/guest_to_host.txt
+                if kill -0 "$TRACE_PID" 2>/dev/null && trace_subscribed; then
+                  echo "ACK 0" >> /mnt/host/guest_to_host.txt
+                else
+                  echo "error: trace monitor (PID $TRACE_PID) died before shutdown" | tee -a /mnt/host/harness.log
+                  echo "ACK 1" >> /mnt/host/guest_to_host.txt
+                fi
                 shutdown_received=1
                 ;;
             esac
@@ -145,7 +153,7 @@ echo "sent READY signal to host" | tee -a /mnt/host/harness.log
 wait $CMD_LISTENER_PID
 
 echo "shutdown signal received" | tee -a /mnt/host/harness.log
-kill $TRACE_PID 2>/dev/null || true
+kill "$TRACE_PID" 2>/dev/null || true
 echo "trace monitor killed" | tee -a /mnt/host/harness.log
 sync
 echo "halting..." | tee -a /mnt/host/harness.log

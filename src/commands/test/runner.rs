@@ -17,14 +17,16 @@ use super::guest::{
 use super::packet::build_test_frame;
 use super::report::{CaseResult, Report, SuiteReport};
 use super::setup::{create_interface_socketpairs, generate_entrypoint_script};
-use super::trace::{parse_chain_hooks, parse_conntrack_snat, parse_trace_for_packet};
+use super::trace::{
+    find_unrecognized_trace_lines, parse_chain_hooks, parse_conntrack_snat, parse_trace_for_packet,
+};
 use super::validation::validate_expectations_from_trace;
 
-const UML_BOOT_WAIT_SECS: u64 = 5;
+const READY_TIMEOUT_SECS: u64 = 45;
 const SOCKET_READ_TIMEOUT_MS: u64 = 10;
 const SOCKET_DRAIN_POLL_INTERVAL_MS: u64 = 50;
-// time for UML to process SHUTDOWN before the child is awaited
-const TRACE_COLLECTION_WAIT_SECS: u64 = 1;
+// grace window for the injector task to finish reading SHUTDOWN's ACK if UML halts first
+const INJECTOR_FINISH_GRACE_SECS: u64 = 2;
 // a loaded host can delay trace lines well past any fixed window, so read until
 // the packet shows up and the monitor goes quiet, giving up after the timeout
 const TRACE_SEARCH_TIMEOUT_MS: u64 = 3000;
@@ -33,11 +35,16 @@ const TRACE_POLL_INTERVAL_MS: u64 = 10;
 
 // the guest dumps its conntrack table here so masquerade can be read, not guessed
 const CONNTRACK_DUMP_FILE: &str = "conntrack.txt";
+const TRACE_MONITOR_ERR_FILE: &str = "trace_monitor.err";
 
-/// run a shell command in the guest over the file-based control channel and
-/// return its exit code. each EXEC gets exactly one ACK, so the first ACK
-/// beyond those already present answers this command
-async fn run_in_guest(host_to_guest: &Path, guest_to_host: &Path, cmd: &str) -> Result<i32> {
+/// send one control message (EXEC or SHUTDOWN) over the file-based channel and
+/// return its ACK code. each message gets one ACK, so the first ACK beyond
+/// those already present answers this message
+async fn send_guest_message(
+    host_to_guest: &Path,
+    guest_to_host: &Path,
+    message: &str,
+) -> Result<i32> {
     let acks = || -> Vec<String> {
         fs::read_to_string(guest_to_host)
             .unwrap_or_default()
@@ -47,9 +54,10 @@ async fn run_in_guest(host_to_guest: &Path, guest_to_host: &Path, cmd: &str) -> 
     };
     let acks_before = acks().len();
     fs::OpenOptions::new()
+        .create(true)
         .append(true)
         .open(host_to_guest)
-        .and_then(|mut f| f.write_all(format!("EXEC {}\n", cmd).as_bytes()))
+        .and_then(|mut f| f.write_all(format!("{}\n", message).as_bytes()))
         .context("failed to write message")?;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(GUEST_INJECTION_TIMEOUT_SECS + 1) {
@@ -61,11 +69,45 @@ async fn run_in_guest(host_to_guest: &Path, guest_to_host: &Path, cmd: &str) -> 
     bail!("guest command timeout - no acknowledgment received")
 }
 
+/// run a shell command in the guest and return its exit code
+async fn run_in_guest(host_to_guest: &Path, guest_to_host: &Path, cmd: &str) -> Result<i32> {
+    send_guest_message(host_to_guest, guest_to_host, &format!("EXEC {}", cmd)).await
+}
+
 /// read whatever the trace monitor has appended since the last call
 fn read_new_trace(reader: &mut std::io::BufReader<std::fs::File>) -> String {
     let mut buf = Vec::new();
     let _ = reader.read_to_end(&mut buf);
     String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// append any newly written trace bytes to `trace`, echoing when `--trace` is on
+fn drain_trace_to(
+    reader: &mut std::io::BufReader<std::fs::File>,
+    trace: &mut String,
+    echo: bool,
+) -> bool {
+    let new_lines = read_new_trace(reader);
+    if new_lines.is_empty() {
+        return false;
+    }
+    if echo {
+        print!("{}", new_lines);
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+    }
+    trace.push_str(&new_lines);
+    true
+}
+
+/// keep the temporary directory on failure and tell the user where its logs are
+fn preserve_temp_dir(temp_dir: TempDir) {
+    let path = temp_dir.path().to_path_buf();
+    eprintln!("check logs in: {}", path.display());
+    eprintln!("  - {}/test.log for verbose test output", path.display());
+    eprintln!("  - {}/harness.log for guest boot log", path.display());
+    eprintln!("  - {}/uml_stdout.log for UML kernel output", path.display());
+    let _ = temp_dir.keep();
+    eprintln!("temporary directory preserved at: {}", path.display());
 }
 
 /// append trace output to `trace` until `is_found` matches the part read by
@@ -82,13 +124,7 @@ async fn collect_packet_trace(
     let mut last_growth = start;
     let mut found = false;
     while start.elapsed() < Duration::from_millis(TRACE_SEARCH_TIMEOUT_MS) {
-        let new_lines = read_new_trace(reader);
-        if !new_lines.is_empty() {
-            if echo {
-                print!("{}", new_lines);
-                std::io::Write::flush(&mut std::io::stdout()).ok();
-            }
-            trace.push_str(&new_lines);
+        if drain_trace_to(reader, trace, echo) {
             last_growth = std::time::Instant::now();
             found = found || is_found(&trace[start_len..]);
         }
@@ -268,7 +304,10 @@ pub async fn run_simulation(
     let temp_dir_path = temp_dir.path().to_path_buf();
     let host_to_guest_path_clone = host_to_guest_path.clone();
     let guest_to_host_path_clone = guest_to_host_path.clone();
-    let injector = tokio::spawn(async move {
+    // return sockets with the results so they stay open until UML halts;
+    // closing them early spins UML's vector driver on POLLHUP
+    let mut injector: tokio::task::JoinHandle<Result<(Vec<CaseResult>, Vec<std::os::unix::net::UnixStream>)>> =
+        tokio::spawn(async move {
         // detailed output always goes to test.log, and to stdout with --verbose
         let log_path = temp_dir_path.join("test.log");
         let mut log_file = std::fs::OpenOptions::new()
@@ -292,7 +331,8 @@ pub async fn run_simulation(
 
         log!("\n=== waiting for UML READY signal ===");
 
-        let ready_timeout = Duration::from_secs(UML_BOOT_WAIT_SECS + 5);
+        let ready_timeout_secs = READY_TIMEOUT_SECS.min((timeout_secs / 2).max(1));
+        let ready_timeout = Duration::from_secs(ready_timeout_secs);
         let poll_interval = Duration::from_millis(50);
         let start_time = std::time::Instant::now();
         let mut guest_ready = false;
@@ -309,22 +349,20 @@ pub async fn run_simulation(
         }
 
         if !guest_ready {
-            log!("warning: timeout waiting for READY signal");
-            log!("proceeding anyway (guest may still be booting)");
-        } else {
-            log!("guest boot complete and ready");
+            log!("error: timeout waiting for READY signal");
+            bail!("timeout waiting for guest READY signal after {}s", ready_timeout_secs);
         }
+        log!("guest boot complete and ready");
 
         // the harness records each base chain's hook after loading the ruleset,
         // so traces from chains not named after their hook resolve correctly
-        let chain_hooks = std::fs::read_to_string(temp_dir_path.join("chains.json"))
-            .map(|json| parse_chain_hooks(&json))
-            .unwrap_or_default();
+        let chains_json = fs::read_to_string(temp_dir_path.join("chains.json"))
+            .context("failed to read chains.json after guest reported READY")?;
+        let chain_hooks = parse_chain_hooks(&chains_json);
 
         let trace_path = temp_dir_path.join("trace.log");
         log!("opening trace.log for streaming...");
 
-        // the harness may not have started the monitor yet
         let mut trace_file_ready = false;
         for _ in 0..20 {
             if trace_path.exists() {
@@ -335,24 +373,16 @@ pub async fn run_simulation(
         }
 
         if !trace_file_ready {
-            log!("warning: trace.log not found, trace validation may fail");
+            bail!("trace.log not found after guest reported READY");
         }
 
         // reads return what was appended since the last one, tail -f style
-        let mut trace_reader: Option<std::io::BufReader<std::fs::File>> =
-            match std::fs::File::open(&trace_path) {
-                Ok(f) => {
-                    log!("trace log opened for streaming");
-                    if trace_enabled {
-                        println!("\n=== nftables trace output (streaming) ===");
-                    }
-                    Some(std::io::BufReader::new(f))
-                }
-                Err(e) => {
-                    log!("warning: failed to open trace.log: {}", e);
-                    None
-                }
-            };
+        let trace_file = std::fs::File::open(&trace_path).context("failed to open trace.log")?;
+        log!("trace log opened for streaming");
+        if trace_enabled {
+            println!("\n=== nftables trace output (streaming) ===");
+        }
+        let mut trace_reader = std::io::BufReader::new(trace_file);
 
         let mut accumulated_trace = String::new();
 
@@ -405,6 +435,11 @@ pub async fn run_simulation(
             }
 
             for (step_num, step) in test.packets.iter().enumerate() {
+                // drain idle guest traffic first so this step only searches trace
+                // output produced after its own packet is injected
+                drain_trace_to(&mut trace_reader, &mut accumulated_trace, trace_enabled);
+                let step_trace_start = accumulated_trace.len();
+
                 let inject_from_guest = should_inject_from_guest(&step.packet, &test_config);
 
                 if inject_from_guest {
@@ -484,13 +519,11 @@ pub async fn run_simulation(
                         &chain_hooks,
                     )
                 };
-                if let Some(ref mut reader) = trace_reader {
-                    collect_packet_trace(reader, &mut accumulated_trace, trace_enabled, |t| {
-                        find_packet(t).is_some()
-                    })
-                    .await;
-                }
-                let mut trace_info = find_packet(&accumulated_trace);
+                collect_packet_trace(&mut trace_reader, &mut accumulated_trace, trace_enabled, |t| {
+                    find_packet(t).is_some()
+                })
+                .await;
+                let mut trace_info = find_packet(&accumulated_trace[step_trace_start..]);
 
                 // masquerade picks its address at runtime (the one facing the
                 // route's gateway), so ask the guest's conntrack table which
@@ -569,64 +602,110 @@ pub async fn run_simulation(
         if verbose {
             println!("\n=== signaling UML to shutdown ===");
         }
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&host_to_guest_path_clone)
-            .and_then(|mut f| std::io::Write::write_all(&mut f, b"SHUTDOWN\n"))
-        {
-            Ok(_) => {
-                if verbose {
-                    println!("sent SHUTDOWN message to guest");
-                }
-            }
-            Err(e) => {
-                if verbose {
-                    println!("warning: could not write shutdown signal: {}", e);
-                }
-            }
+        let shutdown_ack = send_guest_message(
+            &host_to_guest_path_clone,
+            &guest_to_host_path_clone,
+            "SHUTDOWN",
+        )
+        .await
+        .context("guest did not acknowledge SHUTDOWN")?;
+        if verbose {
+            println!("sent SHUTDOWN message to guest (ack {})", shutdown_ack);
         }
 
-        tokio::time::sleep(Duration::from_secs(TRACE_COLLECTION_WAIT_SECS)).await;
+        // capture any remaining trace lines flushed before the monitor is stopped
+        drain_trace_to(&mut trace_reader, &mut accumulated_trace, trace_enabled);
         if verbose {
             println!();
         }
-        results
+
+        if shutdown_ack != 0 {
+            let monitor_err = fs::read_to_string(temp_dir_path.join(TRACE_MONITOR_ERR_FILE))
+                .unwrap_or_default();
+            let detail = monitor_err.trim();
+            if detail.is_empty() {
+                bail!("trace monitor died before simulation finished");
+            }
+            bail!("trace monitor died before simulation finished: {}", detail);
+        }
+
+        let unrecognized = find_unrecognized_trace_lines(&accumulated_trace);
+        if !unrecognized.is_empty() {
+            bail!(
+                "found {} unrecognized line(s) in trace output (first: {:?})",
+                unrecognized.len(),
+                unrecognized[0]
+            );
+        }
+
+        Ok((results, sockets))
     });
 
-    let timeout = Duration::from_secs(timeout_secs);
-    match tokio::time::timeout(timeout, child.wait()).await {
-        Ok(Ok(status)) => {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let results = tokio::select! {
+        res = &mut injector => {
+            match res.context("packet injection task failed")? {
+                Ok((results, _sockets)) => {
+                    match tokio::time::timeout_at(deadline, child.wait()).await {
+                        Ok(Ok(status)) => {
+                            if verbose {
+                                println!("UML process finished with status: {}", status);
+                            }
+                            if !status.success() {
+                                preserve_temp_dir(temp_dir);
+                                bail!("UML process exited with an error code");
+                            }
+                            results
+                        }
+                        Ok(Err(e)) => return Err(e).context("failed to wait for UML child process"),
+                        Err(_) => {
+                            let _ = child.kill().await;
+                            preserve_temp_dir(temp_dir);
+                            bail!("simulation timed out after {} seconds", timeout_secs);
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = child.kill().await;
+                    preserve_temp_dir(temp_dir);
+                    return Err(e);
+                }
+            }
+        }
+        status = child.wait() => {
+            let status = status.context("failed to wait for UML child process")?;
             if verbose {
                 println!("UML process finished with status: {}", status);
             }
             if !status.success() {
-                eprintln!("check logs in: {}", temp_dir.path().display());
-                eprintln!("  - {}/test.log for verbose test output", temp_dir.path().display());
-                eprintln!("  - {}/harness.log for guest boot log", temp_dir.path().display());
-                eprintln!("  - {}/uml_stdout.log for UML kernel output", temp_dir.path().display());
-
-                let path = temp_dir.path().to_path_buf();
-                let _ = temp_dir.keep();
-                eprintln!("temporary directory preserved at: {}", path.display());
-
+                injector.abort();
+                preserve_temp_dir(temp_dir);
                 bail!("UML process exited with an error code");
             }
+            // UML may halt cleanly right as the injector reads SHUTDOWN's ACK
+            let grace = Duration::from_secs(INJECTOR_FINISH_GRACE_SECS);
+            match tokio::time::timeout(grace, &mut injector).await {
+                Ok(res) => match res.context("packet injection task failed")? {
+                    Ok((results, _sockets)) => results,
+                    Err(e) => {
+                        preserve_temp_dir(temp_dir);
+                        return Err(e);
+                    }
+                },
+                Err(_) => {
+                    injector.abort();
+                    preserve_temp_dir(temp_dir);
+                    bail!("UML process exited before simulation completed");
+                }
+            }
         }
-        Ok(Err(e)) => return Err(e).context("failed to wait for UML child process"),
-        Err(_) => {
-            child
-                .kill()
-                .await
-                .context("failed to kill UML process after timeout")?;
-
-            let path = temp_dir.path().to_path_buf();
-            let _ = temp_dir.keep();
-            eprintln!("temporary directory preserved at: {}", path.display());
-
-            bail!("simulation timed out after {} seconds", timeout.as_secs());
+        _ = tokio::time::sleep_until(deadline) => {
+            injector.abort();
+            let _ = child.kill().await;
+            preserve_temp_dir(temp_dir);
+            bail!("simulation timed out after {} seconds", timeout_secs);
         }
-    }
+    };
 
     if verbose {
         println!(
@@ -634,8 +713,6 @@ pub async fn run_simulation(
             temp_dir.path().display()
         );
     }
-
-    let results = injector.await.context("packet injection task failed")?;
 
     // read the log before the temp dir is dropped
     let log_path = temp_dir.path().join("test.log");
